@@ -27,11 +27,16 @@ dependencies = [
     "edge-tts>=7.2.3",
     "psutil>=5.9.0",
     "pycryptodome>=3.23.0",
-    "qrcode>=8.2"
+    "qrcode>=8.2",
+    # 投送支持 (DLNA 渲染器 / AirPlay 接收器)，见 xiaomusic/cast/
+    "av>=14.0.0",
+    "zeroconf>=0.38.0"
 ]
 requires-python = ">=3.10"
 readme = "README.md"
-license = {text = "MIT"}
+# 投送功能 (xiaomusic/cast/) 派生自 GPL-3.0 的 MiAir Next，
+# 组合作品整体按 GPL-3.0-or-later 分发，详见 NOTICE
+license = {text = "GPL-3.0-or-later"}
 
 [project.urls]
 Homepage = "https://github.com/hanxi/xiaomusic"
@@ -66,6 +71,10 @@ lint.ignore = [
     "W191", # tab-indentation
 ]
 include = ["**/*.py", "**/*.pyi", "**/pyproject.toml"]
+# 投送协议层为移植代码 (源自 MiAir Next)，保持与上游一致、不纳入 lint：
+# ruff --fix 的 UP 规则会重写遗留写法，format 也会大改 fairplay3.py 等文件。
+# 上游 miair-next 同样把 engine 目录排除在外。适配层不在此列，正常参与 lint。
+extend-exclude = ["xiaomusic/cast/dlna", "xiaomusic/cast/airplay"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

@@ -3,200 +3,74 @@ name: CI Workflow
 on:
   push:
     branches:
-      - "*" # 所有分支触发
+      - "*" # 所有分支触发构建；只在 main / v* tag 上推送镜像
     tags:
       - "v*"
   workflow_dispatch:
 
 env:
-  VERSION_TAG: ${{ secrets.DOCKERHUB_USERNAME }}/xiaomusic:${{ github.ref_name }}
-  LATEST_TAG: ${{ secrets.DOCKERHUB_USERNAME }}/xiaomusic:latest
-  STABLE_TAG: ${{ secrets.DOCKERHUB_USERNAME }}/xiaomusic:stable
+  REGISTRY: ghcr.io
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
+  packages: write # 推镜像到 GHCR 需要
 
 jobs:
-  # 构建多架构 Docker 镜像并在所有平台上运行基本测试
+  # 构建 amd64 镜像 -> 冒烟测试 -> 推送 GHCR
+  # 镜像地址: ghcr.io/<owner>/<repo>:latest
+  # 用仓库自带的 GITHUB_TOKEN 登录，无需配置任何 secret
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        platform: [amd64, arm64, armv7]
-        include:
-          - platform: amd64
-            arch: amd64
-          - platform: arm64
-            arch: arm64
-          - platform: armv7
-            arch: arm/v7
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: true
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      # GHCR 要求镜像名全小写，而 GitHub 用户名可能含大写字母
+      - name: Compute image name
+        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker image for ${{ matrix.platform }}
+      - name: Build Docker image (linux/amd64)
         uses: docker/build-push-action@v6
         with:
-          platforms: linux/${{ matrix.arch }}
+          platforms: linux/amd64
           context: .
-          push: false
           load: true
-          tags: ${{ env.VERSION_TAG }}
-          cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          tags: ${{ env.IMAGE }}:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Test Docker image for ${{ matrix.platform }}
+      # 冒烟测试 1: CLI 可用
+      - name: Test CLI
+        run: docker run --rm ${{ env.IMAGE }}:ci-test /app/.venv/bin/python3 /app/xiaomusic.py -h
+
+      # 冒烟测试 2: 投送依赖真的装上了且能导入
+      # av / zeroconf 是新增的重型依赖 (PyAV 走 abi3 musllinux wheel)，
+      # 装不上或不兼容会在这里暴露，而不是等用户投送时才发现
+      - name: Test cast dependencies
         run: |
-          docker run --rm ${{ env.VERSION_TAG }} /app/.venv/bin/python3 /app/xiaomusic.py -h
+          docker run --rm ${{ env.IMAGE }}:ci-test /app/.venv/bin/python3 -c "
+          import av, zeroconf
+          print('av', av.__version__)
+          print('zeroconf', zeroconf.__version__)
+          import xiaomusic.cast
+          print('xiaomusic.cast import ok')
+          "
 
-      - name: Save ${{ matrix.platform }} image to tar
-        run: |
-          docker save ${{ env.VERSION_TAG }} -o xiaomusic-${{ github.ref_name }}-${{ matrix.platform }}.tar
-
-      - name: Upload Docker images as artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-images-${{ matrix.platform }}
-          path: xiaomusic-${{ github.ref_name }}-${{ matrix.platform }}.tar
-          retention-days: 1
-
-  # 推送多架构 Docker 镜像到 Docker Hub
-  push-docker:
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref_name == 'main' || startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Publish to Docker Hub
-        if: github.ref_name == 'main'
+      - name: Push to GHCR
+        if: github.ref_name == 'main' || startsWith(github.ref, 'refs/tags/v')
         uses: docker/build-push-action@v6
         with:
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64
           context: .
           push: true
-          tags: ${{ env.VERSION_TAG }}
-          cache-from: |
-            type=gha,scope=amd64
-            type=gha,scope=arm64
-            type=gha,scope=armv7
-
-      - name: Publish to Docker Hub latest and stable
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: docker/build-push-action@v6
-        with:
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          context: .
-          push: true
-          tags: |
-            ${{ env.VERSION_TAG }}
-            ${{ env.LATEST_TAG }}
-            ${{ env.STABLE_TAG }}
-          cache-from: |
-            type=gha,scope=amd64
-            type=gha,scope=arm64
-            type=gha,scope=armv7
-
-  # 推送镜像到 GitHub Release
-  publish-release:
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref_name == 'main' || startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all platform artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: docker-images-*
-          merge-multiple: true
-
-      - name: Install GitHub CLI
-        run: |
-          sudo apt update
-          sudo apt install -y gh
-
-      - name: Create or update Release tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          RELEASE_NAME=${{ github.ref_name }}
-          RELEASE_BODY="This release is automatically updated from the ${RELEASE_NAME} branch."
-
-          EXISTING_RELEASE=$(gh release view "${RELEASE_NAME}" --json id --jq .id || echo "")
-
-          if [[ -n "${EXISTING_RELEASE}" ]]; then
-            echo "release exist"
-          else
-            gh release create "${RELEASE_NAME}" \
-              --prerelease=false \
-              --title "${RELEASE_NAME}" \
-              --notes "${RELEASE_BODY}"
-          fi
-
-      - name: Upload assets to Release tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          RELEASE_NAME=${{ github.ref_name }}
-
-          FILES=$(find . -type f -name "xiaomusic-*.tar")
-          for FILE in ${FILES}; do
-            echo "type upload ${FILE}"
-            gh release upload "${RELEASE_NAME}" "${FILE}" --clobber
-          done
-
-  # 推送 PyPI 包
-  publish-pypi:
-    runs-on: ubuntu-latest
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: true
-
-      - uses: actions/setup-node@v4
-        with:
-          registry-url: https://registry.npmjs.org/
-          node-version: lts/*
-
-      - name: Generate changelog
-        run: npx changelogithub
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: pdm-project/setup-pdm@v3
-
-      - name: Publish package distributions to PyPI
-        run: pdm publish
-        continue-on-error: true
+          tags: ${{ env.IMAGE }}:latest
+          cache-from: type=gha

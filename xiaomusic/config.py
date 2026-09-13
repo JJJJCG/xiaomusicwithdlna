@@ -254,6 +254,57 @@ class Config:
     )
     qrcode_timeout: int = os.getenv("QRCODE_TIMEOUT", 120)
 
+    # ---- 投送服务 (DLNA 渲染器 / AirPlay 接收器) ----
+    # 协议层移植自 miair-next, 详见 xiaomusic/cast/__init__.py
+    # 默认自动启用, 跟随已配置的音箱列表; 无音箱时不启动
+    enable_cast: bool = (
+        os.getenv("XIAOMUSIC_ENABLE_CAST", "true").lower() == "true"
+    )
+    # 局域网 IP, 留空则自动探测 (多网卡/容器场景可手动指定)
+    cast_hostname: str = os.getenv("XIAOMUSIC_CAST_HOSTNAME", "")
+    # DLNA (SSDP + HTTP) 监听端口
+    dlna_port: int = int(os.getenv("XIAOMUSIC_DLNA_PORT", "8200"))
+    # 投送时应用的默认音量 (0 = 不改动音箱音量)
+    cast_default_volume: int = int(os.getenv("XIAOMUSIC_CAST_DEFAULT_VOLUME", "38"))
+    # 跟随音箱当前音量, 而不是套用默认音量
+    cast_follow_device_volume: bool = (
+        os.getenv("XIAOMUSIC_CAST_FOLLOW_DEVICE_VOLUME", "true").lower() == "true"
+    )
+    # 触屏歌词匹配: 每首歌按投送元数据搜小米曲库换 audioID (有额外接口调用)
+    cast_touchscreen_lyrics: bool = (
+        os.getenv("XIAOMUSIC_CAST_TOUCHSCREEN_LYRICS", "false").lower() == "true"
+    )
+    # 投送方未提供封面时的兜底封面 URL, 留空用内置默认封面
+    cast_default_cover_url: str = os.getenv("XIAOMUSIC_CAST_DEFAULT_COVER_URL", "")
+    # 小米云路线默认封面 audioID, 留空用 use_music_audio_id
+    cast_default_audio_id: str = os.getenv("XIAOMUSIC_CAST_DEFAULT_AUDIO_ID", "")
+    # 实验性: 被语音打断后自动续播
+    cast_auto_resume_on_interrupt: bool = (
+        os.getenv("XIAOMUSIC_CAST_AUTO_RESUME_ON_INTERRUPT", "false").lower() == "true"
+    )
+    cast_resume_delay_seconds: int = int(
+        os.getenv("XIAOMUSIC_CAST_RESUME_DELAY_SECONDS", "5")
+    )
+    # 实验性: SetAVTransportURI 后自动开始播放
+    cast_auto_play_on_set_uri: bool = (
+        os.getenv("XIAOMUSIC_CAST_AUTO_PLAY_ON_SET_URI", "false").lower() == "true"
+    )
+
+    # ---- 播完自动断开 ----
+    # 音乐播完后关闭给音箱推流的 HTTP 长连接（/proxy、DLNA /media、
+    # AirPlay /airplay/stream.wav）。这些连接音箱不主动断就会一直占着。
+    enable_auto_disconnect: bool = (
+        os.getenv("XIAOMUSIC_ENABLE_AUTO_DISCONNECT", "true").lower() == "true"
+    )
+    # 兜底轮询间隔（秒）
+    auto_disconnect_poll_interval: int = int(
+        os.getenv("XIAOMUSIC_AUTO_DISCONNECT_POLL_INTERVAL", "5")
+    )
+    # 连续检测到「音箱已停止」多少次才判定播放结束（防抖，避免切歌间隙误判）
+    auto_disconnect_poll_threshold: int = int(
+        os.getenv("XIAOMUSIC_AUTO_DISCONNECT_POLL_THRESHOLD", "3")
+    )
+
     def append_keyword(self, keys, action):
         for key in keys.split(","):
             if key:

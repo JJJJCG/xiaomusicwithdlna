@@ -93,6 +93,8 @@ class XiaoMusicDevice:
         self._tts_timer = None
         # 用于预缓存下一首的定时器
         self._prefetch_timer = None
+        # 播完自动断开的兜底轮询任务
+        self._stream_watch_task = None
 
     @property
     def did(self):
@@ -605,6 +607,9 @@ class XiaoMusicDevice:
         # 记录歌曲开始播放的时间
         self._start_time = time.time()
         self._paused_time = 0
+
+        # 播完自动断开：播放已下发，启动兜底轮询（定时器是主路径）
+        self.start_stream_watch()
 
         # 获取音频时长
         sec = await self.xiaomusic.music_library.get_music_duration(name, cur_playlist)
@@ -1186,6 +1191,64 @@ class XiaoMusicDevice:
         self.log.info(f"开始播放列表{list_name} {music_name}")
         await self._play(music_name)
 
+    # ---- 播完自动断开 ----
+
+    def start_stream_watch(self):
+        """启动兜底轮询：检测到音箱停止播放就断开推流连接。
+
+        主路径是 set_next_music_timeout 的定时器（曲长到了走 stop()）；
+        这里兜底覆盖歌单播完、音箱被语音打断、曲长不准等情况 ——
+        这些场景下 is_playing 仍是 True，但音箱其实已经停了。
+        """
+        self.cancel_stream_watch()
+        if not self.config.enable_auto_disconnect:
+            return
+        self._stream_watch_task = asyncio.create_task(self._watch_playback_end())
+
+    def cancel_stream_watch(self):
+        """停止兜底轮询。"""
+        task = self._stream_watch_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._stream_watch_task = None
+
+    async def _watch_playback_end(self):
+        """轮询音箱状态，连续多次检测到已停止就断开推流连接。
+
+        要求「连续 N 次」是为了防抖：切歌时音箱会有短暂的停止再起播，
+        单次采样很容易误判，从而把新歌的流也断掉。
+        """
+        interval = max(1, int(self.config.auto_disconnect_poll_interval))
+        threshold = max(1, int(self.config.auto_disconnect_poll_threshold))
+        stopped_count = 0
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                if not self.is_playing:
+                    return
+                try:
+                    playing = await self.get_if_xiaoai_is_playing()
+                except Exception as e:
+                    self.log.warning(f"播完检测轮询失败 did:{self.did} {e}")
+                    continue
+                if playing:
+                    stopped_count = 0
+                    continue
+                stopped_count += 1
+                self.log.debug(
+                    f"播完检测: 音箱未在播放 did:{self.did} ({stopped_count}/{threshold})"
+                )
+                if stopped_count >= threshold:
+                    self.log.info(
+                        f"播完检测: 音箱已停止播放，断开推流连接 did:{self.did}"
+                    )
+                    self.xiaomusic.disconnect_streams(f"播放结束({self.did})")
+                    return
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            self.log.warning(f"播完检测异常 did:{self.did} {e}")
+
     async def stop(self, arg1=""):
         """停止播放"""
         self._last_cmd = "stop"
@@ -1196,6 +1259,9 @@ class XiaoMusicDevice:
         # 取消组内所有的下一首歌曲的定时器
         await self.cancel_group_next_timer()
         await self.group_force_stop_xiaoai()
+        # 播完自动断开：播放已停，关闭给音箱推流的长连接
+        self.cancel_stream_watch()
+        self.xiaomusic.disconnect_streams(f"停止播放({self.did})")
         self.log.info("stop now")
 
     async def group_force_stop_xiaoai(self):

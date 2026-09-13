@@ -9,11 +9,8 @@
 >
 > 衷心感谢一路以来所有用户的支持与陪伴 ❤️
 
-[![GitHub License](https://img.shields.io/github/license/hanxi/xiaomusic)](https://github.com/hanxi/xiaomusic)
-[![Docker Image Version](https://img.shields.io/docker/v/hanxi/xiaomusic?sort=semver&label=docker%20image)](https://hub.docker.com/r/hanxi/xiaomusic)
-[![Docker Pulls](https://img.shields.io/docker/pulls/hanxi/xiaomusic)](https://hub.docker.com/r/hanxi/xiaomusic)
-[![PyPI - Version](https://img.shields.io/pypi/v/xiaomusic)](https://pypi.org/project/xiaomusic/)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/xiaomusic)](https://pypi.org/project/xiaomusic/)
+[![GitHub License](https://img.shields.io/github/license/JJJJCG/xiaomusicwithdlna)](LICENSE)
+[![Docker Image](https://img.shields.io/badge/ghcr.io-xiaomusicwithdlna-blue?logo=docker)](https://github.com/JJJJCG/xiaomusicwithdlna/pkgs/container/xiaomusicwithdlna)
 [![Python Version from PEP 621 TOML](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fhanxi%2Fxiaomusic%2Fmain%2Fpyproject.toml)](https://pypi.org/project/xiaomusic/)
 [![GitHub Release](https://img.shields.io/github/v/release/hanxi/xiaomusic)](https://github.com/hanxi/xiaomusic/releases)
 [![Visitors](https://api.visitorbadge.io/api/daily?path=hanxi%2Fxiaomusic&label=daily%20visitor&countColor=%232ccce4&style=flat)](https://visitorbadge.io/status?path=hanxi%2Fxiaomusic)
@@ -381,4 +378,9 @@ docker build -t xiaomusic .
 
 ## License
 
-[MIT](https://github.com/hanxi/xiaomusic/blob/main/LICENSE) License © 2024 涵曦
+[GPL-3.0-or-later](LICENSE) © 2024 涵曦 及 contributors
+
+本项目原有代码来自 [XiaoMusic](https://github.com/hanxi/xiaomusic)（MIT）；
+投送功能（DLNA / AirPlay，`xiaomusic/cast/`）移植自
+[MiAir Next](https://github.com/deerwan/miair-next)（GPL-3.0-or-later）。
+组合作品整体按 GPL-3.0-or-later 分发，各组件的出处与原始署名见 [NOTICE](NOTICE)。

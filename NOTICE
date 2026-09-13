@@ -1,0 +1,42 @@
+NOTICE
+======
+
+本项目的投送（DLNA / AirPlay）功能派生自第三方 GPL 代码，
+因此整个项目的分发许可自加入该功能起改为 **GPL-3.0-or-later**。
+
+## 派生来源
+
+`xiaomusic/cast/` 目录下的协议层代码移植自 **MiAir Next**：
+
+    MiAir Next — https://github.com/deerwan/miair-next
+    Copyright (C) MiAir Next contributors
+    Licensed under GPL-3.0-or-later
+
+其中：
+
+- `xiaomusic/cast/dlna/`    —— UPnP AV MediaRenderer（SSDP + SOAP + GENA 事件订阅 + 媒体代理）
+- `xiaomusic/cast/airplay/` —— AirPlay 1 (RAOP) 音频接收（RTSP + FairPlay + RTP 解码）
+
+AirPlay 部分又间接派生自 **airplay2-receiver**，
+其中 `fairplay3.py` 的原始实现来自 systemcrash (2022) 的 Python 移植，
+再上溯为 OmgHax 的 C 实现。`dxxp.py` 亦为 systemcrash (2021) 所作（GPLv2）。
+
+移植过程中新增的适配层（`xiaomusic/cast/speaker_adapter.py`、
+`xiaomusic/cast/manager.py`）与 `xiaomusic/stream_guard.py` 同样以
+GPL-3.0-or-later 分发。
+
+## 原有代码
+
+本项目其余部分（`xiaomusic/` 下除 `cast/` 外的代码）来自 **XiaoMusic**：
+
+    XiaoMusic — https://github.com/hanxi/xiaomusic
+    Copyright (c) 2023 涵曦
+    原以 MIT License 分发
+
+该部分在合并 GPL-3.0 代码后，作为组合作品整体按 GPL-3.0-or-later 分发。
+
+## 为什么整体是 GPL
+
+GPL-3.0 是强 copyleft 许可：把 GPL 代码与 MIT 代码链接成单一作品后，
+整个作品必须按 GPL-3.0 分发，不能只对派生文件适用 GPL 而对其余保留 MIT。
+故此处以 GPL-3.0 覆盖全项目，并在此保留各组件的原始署名与出处。

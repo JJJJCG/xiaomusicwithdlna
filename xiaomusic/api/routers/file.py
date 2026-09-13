@@ -2,6 +2,7 @@ import asyncio
 import base64
 import os
 import shutil
+import threading
 import uuid
 from urllib.parse import urlparse
 
@@ -36,6 +37,7 @@ from xiaomusic.api.models import (
     UrlInfo,
 )
 from xiaomusic.music_library import get_proxy_token
+from xiaomusic.stream_guard import stream_guard
 from xiaomusic.utils.file_utils import (
     chmoddir,
     clean_temp_dir,
@@ -1346,10 +1348,23 @@ async def _proxy_handler(urlb64: str, is_radio: bool):
                 raise
 
         # 非 m3u8 文件，使用流式传输
+        # 播完自动断开：登记这条推流通道，播放结束时置位让生成器收尾
+        # （生成器 return → 响应结束 → 音箱侧连接随之关闭）
+        abort_event = threading.Event()
+        stream_handle = stream_guard.open(
+            f"proxy:{filename}", lambda: abort_event.set()
+        )
+
         async def stream_generator():
             total_bytes = 0
             try:
                 async for data in resp.content.iter_chunked(4096):
+                    if abort_event.is_set():
+                        log.info(
+                            f"[proxy:{request_id}] 收到断开指令，提前结束推流 "
+                            f"(已推送 {total_bytes} 字节)"
+                        )
+                        break
                     total_bytes += len(data)
                     yield data
             except Exception as e:
@@ -1358,6 +1373,7 @@ async def _proxy_handler(urlb64: str, is_radio: bool):
                 )
                 raise
             finally:
+                stream_handle.release()
                 log.info(
                     f"[proxy:{request_id}] stream finished total_bytes={total_bytes} resp_url={str(resp.url)[:500]}"
                 )

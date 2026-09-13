@@ -28,6 +28,7 @@ from xiaomusic.file_watcher import FileWatcherManager
 from xiaomusic.music_library import MusicLibrary
 from xiaomusic.online_music import OnlineMusicService
 from xiaomusic.plugin import PluginManager
+from xiaomusic.stream_guard import stream_guard
 from xiaomusic.utils.network_utils import download_plugin_audio, downloadfile
 from xiaomusic.utils.system_utils import deepcopy_data_no_sensitive_info
 from xiaomusic.utils.text_utils import chinese_to_number
@@ -62,6 +63,9 @@ class XiaoMusic:
 
         # 初始化文件监控管理器
         self.file_watcher = None
+
+        # 投送服务 (DLNA 渲染器 / AirPlay 接收器)，在登录完成后启动
+        self.cast_manager = None
 
         # 初始化在线音乐服务（延迟初始化，在 js_plugin_manager 之后）
         self.online_music_service = None
@@ -262,10 +266,54 @@ class XiaoMusic:
             analytics_task is not None
         )  # to keep the reference to task, do not remove this
         await self.auth_manager.init_all_data()
-        # 启动对话循环，传递回调函数
-        await self.conversation_poller.run_conversation_loop(
-            self.do_check_cmd, self.reset_timer_when_answer
-        )
+        # 登录完成、设备列表就绪后再启动投送服务
+        # (DLNA/AirPlay 都依赖设备信息，且需要 host 网络可达)
+        await self.start_cast()
+        try:
+            # 启动对话循环，传递回调函数
+            await self.conversation_poller.run_conversation_loop(
+                self.do_check_cmd, self.reset_timer_when_answer
+            )
+        finally:
+            # 退出或被取消时释放 SSDP / mDNS 端口与注册，避免重启时端口残留
+            await self.stop_cast()
+
+    async def start_cast(self):
+        """启动 DLNA / AirPlay 投送服务（幂等，无音箱时不启动）。"""
+        if not self.config.enable_cast:
+            self.log.info("投送服务已关闭 (enable_cast=false)，跳过 DLNA/AirPlay")
+            return
+        if self.cast_manager is None:
+            from xiaomusic.cast import CastManager
+
+            self.cast_manager = CastManager(self)
+        try:
+            await self.cast_manager.start()
+        except Exception as e:
+            # 投送服务失败不应影响音乐播放主流程
+            self.log.warning(f"投送服务启动失败，音乐播放功能不受影响: {e}")
+
+    async def stop_cast(self):
+        """停止 DLNA / AirPlay 投送服务。"""
+        if self.cast_manager is None:
+            return
+        try:
+            await self.cast_manager.stop()
+        except Exception as e:
+            self.log.warning(f"投送服务停止失败: {e}")
+
+    def disconnect_streams(self, reason: str = "") -> int:
+        """播完自动断开：关闭所有正在给音箱推流的长连接。
+
+        覆盖三条推流路径：本地/网络音乐的 /proxy、DLNA 投送的 /media、
+        AirPlay 投送的 /airplay/stream.wav。返回实际关闭的连接数。
+
+        同步方法：三个关闭动作（置中断标志 / 取消流式任务）都是同步的，
+        不需要 await。
+        """
+        if not self.config.enable_auto_disconnect:
+            return 0
+        return stream_guard.disconnect_all(reason)
 
     # 匹配命令
     async def do_check_cmd(self, did="", query="", ctrl_panel=True, **kwargs):
@@ -698,6 +746,11 @@ class XiaoMusic:
         await self.auth_manager.init_all_data()
         self.music_library.gen_all_music_list()
         self.update_all_playlist()
+
+        # 设备列表或投送配置可能已变化，按需重建 DLNA/AirPlay
+        # (未启动过则不主动启动，交由 run_forever 决定)
+        if self.cast_manager is not None:
+            await self.cast_manager.restart_if_config_changed("配置变更")
 
         debug_config = deepcopy_data_no_sensitive_info(self.config)
         self.log.info(f"reinit success. data:{debug_config}")
