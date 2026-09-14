@@ -27,7 +27,6 @@ from xiaomusic.events import CONFIG_CHANGED, DEVICE_CONFIG_CHANGED, EventBus
 from xiaomusic.file_watcher import FileWatcherManager
 from xiaomusic.ha import HABridge
 from xiaomusic.music_library import MusicLibrary
-from xiaomusic.online_music import OnlineMusicService
 from xiaomusic.plugin import PluginManager
 from xiaomusic.stream_guard import stream_guard
 from xiaomusic.utils.network_utils import download_plugin_audio, downloadfile
@@ -68,9 +67,6 @@ class XiaoMusic:
         # 投送服务 (DLNA 渲染器 / AirPlay 接收器)，在登录完成后启动
         self.cast_manager = None
 
-        # 初始化在线音乐服务（延迟初始化，在 js_plugin_manager 之后）
-        self.online_music_service = None
-
         # 初始化对话轮询器（延迟初始化，在配置和服务准备好之后）
         self.conversation_poller = None
 
@@ -83,26 +79,6 @@ class XiaoMusic:
 
         # 计划任务
         self.crontab = Crontab(self.log)
-
-        # 初始化 JS 插件管理器
-        try:
-            from xiaomusic.js_plugin_manager import JSPluginManager
-
-            self.js_plugin_manager = JSPluginManager(self)
-            self.log.info("JS Plugin Manager initialized successfully")
-            self.js_plugin_manager.start_auto_convert()
-        except Exception as e:
-            self.log.error(f"Failed to initialize JS Plugin Manager: {e}")
-            self.js_plugin_manager = None
-
-        # 初始化 JS 插件适配器
-        try:
-            from xiaomusic.js_adapter import JSAdapter
-
-            self.js_adapter = JSAdapter(self)
-            self.log.info("JS Adapter initialized successfully")
-        except Exception as e:
-            self.log.error(f"Failed to initialize JS Adapter: {e}")
 
         # 初始化配置管理器（在日志准备好之后）
         self.config_manager = ConfigManager(
@@ -124,13 +100,6 @@ class XiaoMusic:
 
         # 启动时重新生成一次播放列表
         self.music_library.gen_all_music_list()
-
-        # 初始化在线音乐服务（在 js_plugin_manager 准备好之后）
-        self.online_music_service = OnlineMusicService(
-            log=self.log,
-            js_plugin_manager=self.js_plugin_manager,
-            xiaomusic_instance=self,  # 传递xiaomusic实例
-        )
 
         # 初始化设备管理器（在配置准备好之后）
         self.device_manager = DeviceManager(
@@ -446,89 +415,17 @@ class XiaoMusic:
         self.music_library.gen_all_music_list()
         self.update_all_playlist()
 
-    # ===========================在线搜索函数================================
+    # ===========================静态音频 URL================================
 
     def default_url(self, name="silence.mp3"):
-        """委托给 online_music_service"""
-        return self.online_music_service.default_url(name)
+        """获取 static 下音频文件（提示音 / 静默音）的完整 URL。
 
-    # 在线获取歌曲列表（委托给 online_music_service）
-    async def get_music_list_online(
-        self, plugin="all", keyword="", page=1, limit=20, **kwargs
-    ):
-        """委托给 online_music_service"""
-        return await self.online_music_service.get_music_list_online(
-            plugin, keyword, page, limit, **kwargs
-        )
-
-    # 在线获取歌单列表
-    async def get_playlist_online(
-        self, plugin="all", keyword="", page=1, limit=20, **kwargs
-    ):
-        """委托给 online_music_service"""
-        return await self.online_music_service.get_playlist_online(
-            plugin, keyword, page, limit, **kwargs
-        )
-
-    # 在线获取歌单内部歌曲详情
-    async def get_playlist_detail_online(self, id, plugin, api_type, **kwargs):
-        """委托给 online_music_service"""
-        return await self.online_music_service.get_playlist_detail_online(
-            id=id, plugin=plugin, api_type=api_type, **kwargs
-        )
-
-    # 调用MusicFree插件获取歌曲列表（委托给 online_music_service）
-    async def get_music_list_mf(
-        self, plugin="all", keyword="", artist="", page=1, limit=20, **kwargs
-    ):
-        """委托给 online_music_service"""
-        return await self.online_music_service.get_music_list_mf(
-            plugin, keyword, artist, page, limit, **kwargs
-        )
-
-    # 调用MusicFree插件获取歌词（委托给 online_music_service）
-    async def get_media_lyric(self, music_item):
-        """委托给 online_music_service"""
-        return await self.online_music_service.get_media_lyric(music_item)
-
-    # 在线搜索歌手，添加歌手歌单并播放
-    async def search_singer_play(self, did, search_key, name):
-        """委托给 online_music_service"""
-        return await self.online_music_service.search_singer_play(did, search_key, name)
-
-    # 追加歌手歌曲
-    async def add_singer_song(self, list_name, name):
-        """委托给 online_music_service"""
-        return await self.online_music_service.add_singer_song(list_name, name)
-
-    # 在线搜索搜索最符合的一首歌并播放
-    async def search_top_one_play(self, did, search_key, name):
-        """委托给 online_music_service"""
-        return await self.online_music_service.search_top_one_play(
-            did, search_key, name
-        )
-
-    # 口令:在线播放：在线搜索、播放
-    async def online_play(self, did="", arg1="", **kwargs):
-        """委托给 online_music_service"""
-        return await self.online_music_service.online_play(did, arg1, **kwargs)
-
-    # 口令：搜索歌单
-    async def online_playlist_play(self, did="", arg1="", **kwargs):
-        """委托给 online_music_service"""
-        return await self.online_music_service.online_playlist_play(did, arg1, **kwargs)
-
-    # 口令:播放歌手：在线搜索歌手并存为列表播放
-    async def singer_play(self, did="", arg1="", **kwargs):
-        """委托给 online_music_service"""
-        return await self.online_music_service.singer_play(did, arg1, **kwargs)
-
-    # 处理推送的歌单并播放
-    async def push_music_list_play(self, did, song_list, list_name):
-        """委托给 online_music_service"""
-        return await self.online_music_service.push_music_list_play(
-            did, song_list, list_name
-        )
+        原先委托给 online_music_service，随在线音乐一起删掉后本地实现。
+        """
+        config = self.config
+        hostname = getattr(config, "hostname", "") or "http://127.0.0.1"
+        port = getattr(config, "public_port", "") or getattr(config, "port", 8090)
+        return f"{hostname}:{port}/static/{name}"
 
     async def download_plugin_audio(self, url: str, save_path: str) -> bool:
         """提供给插件或外部调用的独立流式音频下载接口"""

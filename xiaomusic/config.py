@@ -112,7 +112,7 @@ class Config:
     )  # mutagen or ffprobe
     active_cmd: str = os.getenv(
         "XIAOMUSIC_ACTIVE_CMD",
-        "play,set_play_type_rnd,playlocal,play_music_list,play_music_list_index,stop_after_minute,stop,play_next,play_prev,set_play_type_one,set_play_type_all,set_play_type_sin,set_play_type_seq,gen_music_list,add_to_favorites,del_from_favorites,cmd_del_music,online_play,singer_play,online_playlist_play",
+        "play,set_play_type_rnd,playlocal,play_music_list,play_music_list_index,stop_after_minute,stop,play_next,play_prev,set_play_type_one,set_play_type_all,set_play_type_sin,set_play_type_seq,gen_music_list,add_to_favorites,del_from_favorites,cmd_del_music",
     )
     exclude_dirs: str = os.getenv("XIAOMUSIC_EXCLUDE_DIRS", "@eaDir,tmp")
     ignore_tag_dirs: str = os.getenv("XIAOMUSIC_IGNORE_TAG_DIRS", "")
@@ -161,15 +161,6 @@ class Config:
         "XIAOMUSIC_KEYWORDS_PLAYLOCAL", "播放本地歌曲,本地播放歌曲"
     )
     keywords_play: str = os.getenv("XIAOMUSIC_KEYWORDS_PLAY", "播放歌曲,放歌曲")
-    keywords_online_play: str = os.getenv(
-        "XIAOMUSIC_KEYWORDS_ONLINE_PLAY", "在线播放,搜索歌曲"
-    )
-    keywords_online_playlist_play: str = os.getenv(
-        "XIAOMUSIC_KEYWORDS_ONLINE_PLAYLIST", "在线歌单,搜索歌单"
-    )
-    keywords_singer_play: str = os.getenv(
-        "XIAOMUSIC_KEYWORDS_SINGER_PLAY", "播放歌手,搜索歌手"
-    )
     keywords_stop: str = os.getenv(
         "XIAOMUSIC_KEYWORDS_STOP", "关机,暂停,停止,停止播放,关闭,退出,关掉音乐"
     )
@@ -332,9 +323,6 @@ class Config:
         self.key_word_dict = default_key_word_dict()
         self.append_keyword(self.keywords_playlocal, "playlocal")
         self.append_keyword(self.keywords_play, "play")
-        self.append_keyword(self.keywords_online_play, "online_play")
-        self.append_keyword(self.keywords_online_playlist_play, "online_playlist_play")
-        self.append_keyword(self.keywords_singer_play, "singer_play")
         self.append_keyword(self.keywords_stop, "stop")
         self.append_keyword(self.keywords_playlist, "play_music_list")
         self.append_user_keyword()

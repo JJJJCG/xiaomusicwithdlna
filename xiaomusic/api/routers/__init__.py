@@ -7,7 +7,6 @@ from xiaomusic.api.routers import (
     ha,
     music,
     playlist,
-    plugin,
     system,
 )
 
@@ -23,7 +22,6 @@ def register_routers(app):
     app.include_router(device.router, tags=["设备控制"])
     app.include_router(music.router, tags=["音乐管理"])
     app.include_router(playlist.router, tags=["播放列表"])
-    app.include_router(plugin.router, tags=["插件管理"])
     app.include_router(file.router, tags=["文件操作"])
     app.include_router(ha.router, tags=["Home Assistant"])
     app.include_router(websocket.router, tags=["WebSocket"])

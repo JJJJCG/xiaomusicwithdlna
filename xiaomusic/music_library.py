@@ -177,9 +177,8 @@ class MusicLibrary:
             self.music_list[dir_name] = list(musics.keys())
 
         # 歌单排序
-        for list_name, play_list in self.music_list.items():
-            if not self.is_online_music(list_name):
-                play_list.sort(key=custom_sort_key)
+        for play_list in self.music_list.values():
+            play_list.sort(key=custom_sort_key)
 
         # 非自定义歌单
         self.default_music_list_names = list(self.music_list.keys())
@@ -710,12 +709,6 @@ class MusicLibrary:
         """
         return name in self._all_radio
 
-    # 是否是在线音乐
-    @staticmethod
-    def is_online_music(cur_playlist):
-        # cur_playlist 开头是 '_online_' 则表示online
-        return cur_playlist.startswith("_online_")
-
     def is_web_music(self, name):
         """是否是网络歌曲
 
@@ -835,28 +828,6 @@ class MusicLibrary:
         except Exception as e:
             self.log.debug(f"提取缓存路径失败: {e}")
         return ""
-
-    def is_lx_server_proxy_url(self, origin_url: str) -> bool:
-        """判断原始 plugin-url 是否来自 LX Server 搜索结果。"""
-        if not origin_url or not origin_url.startswith("self:///api/proxy/plugin-url"):
-            return False
-
-        try:
-            query = urlparse(origin_url).query
-            params = parse_qs(query)
-            datab64 = params.get("data", [""])[0].replace(" ", "+")
-            if not datab64:
-                return False
-
-            missing_padding = len(datab64) % 4
-            if missing_padding:
-                datab64 += "=" * (4 - missing_padding)
-
-            payload = json.loads(base64.b64decode(datab64).decode("utf-8"))
-            return isinstance(payload, dict) and isinstance(payload.get("_raw"), dict)
-        except Exception as e:
-            self.log.debug(f"判断 LX Server 代理 URL 失败: {e}")
-            return False
 
     async def get_music_duration(self, name: str, playlist_name: str = None) -> float:
         """获取歌曲时长

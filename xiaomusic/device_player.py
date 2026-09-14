@@ -42,7 +42,6 @@ from xiaomusic.utils.text_utils import (
 )
 
 DEFAULT_PROXY_PROBE_TIMEOUT = 3.0
-LX_SERVER_PROXY_PROBE_TIMEOUT = 8.0
 
 # 下发播放用的 API 分支（本地播放与投送共用，见 resolve_play_api）
 PLAY_API_CONTINUE_PLAY = "continue_play"
@@ -124,8 +123,6 @@ class XiaoMusicDevice:
         self._pending_selection_count = 0
         self.update_playlist()
 
-        # 添加歌曲定时器
-        self._add_song_timer = None
         # TTS 播放定时器
         self._tts_timer = None
         # 用于预缓存下一首的定时器
@@ -155,60 +152,6 @@ class XiaoMusicDevice:
         offset = time.time() - self._start_time - self._paused_time
         return offset, duration
 
-    # 自动搜歌并加入当前歌单
-    async def auto_add_song(self, cur_list_name, sleep_sec=20):
-        if self.xiaomusic.js_plugin_manager is None:
-            return
-        # 是否启用自动添加
-        auto_add_song = self.xiaomusic.js_plugin_manager.get_auto_add_song()
-        is_online = self.xiaomusic.music_library.is_online_music(cur_list_name)
-        # 采用作者建议的黑名单模式，直接排除以 "_online_iwp_" 开头的自定义歌单
-        is_allowed_list = is_online and not cur_list_name.startswith("_online_iwp_")
-        # 歌单循环方式：播放全部
-        play_all = self.device.play_type == PLAY_TYPE_ALL
-        # 当前播放的歌曲是歌单中的最后一曲
-        is_last_song = False
-        cur_playlist = self._play_list
-        cur_music = self.get_cur_music()
-        play_list_len = len(cur_playlist)
-        if play_list_len != 0:
-            index = self._play_list.index(cur_music)
-            is_last_song = index == play_list_len - 1
-        # 四个条件都满足，才自动添加下一首
-        if auto_add_song and is_allowed_list and play_all and is_last_song:
-            await self._add_singer_song(cur_list_name, cur_music, sleep_sec)
-
-    # 启用延时器，搜索当前歌曲歌手的其他不在歌单内的歌曲
-    async def _add_singer_song(self, list_name, cur_music, sleep_sec):
-        # 取消之前的定时器（如果存在）
-        # self.cancel_add_song_timer()
-        # 以 '-' 分割，获取歌手名称
-        singer_name = cur_music.split("-")[1]
-        # 创建新的定时器，20秒后执行
-        self._add_song_timer = asyncio.create_task(
-            self._delayed_add_singer_song(list_name, singer_name, sleep_sec)
-        )
-
-    async def _delayed_add_singer_song(self, list_name, singer_name, sleep_sec):
-        """延迟执行添加歌手歌曲的操作"""
-        try:
-            await asyncio.sleep(sleep_sec)
-            await self.xiaomusic.add_singer_song(list_name, singer_name)
-        except asyncio.CancelledError:
-            return
-        finally:
-            # 执行完毕后清除定时器引用
-            if self._add_song_timer:  # 确保是当前任务
-                self._add_song_timer = None
-
-    def cancel_add_song_timer(self):
-        """取消添加歌曲的定时器"""
-        self.log.info("添加歌手歌曲的定时器已被取消")
-        if self._add_song_timer:
-            self._add_song_timer.cancel()
-            self._add_song_timer = None
-            return True
-        return False
 
     async def play_music(self, name):
         """播放音乐（外部接口）"""
@@ -266,7 +209,7 @@ class XiaoMusicDevice:
                 # A. 剔除云端已经被删除的歌，保留依然存在的歌（绝对不改变它们的相对顺序！）
                 self._play_list = [s for s in old_list if s in latest_list]
 
-                # B. 找出最新歌单里多出来的新歌（比如 auto_add_song 追加进来的）
+                # B. 找出最新歌单里多出来的新歌
                 new_songs = [s for s in latest_list if s not in old_list]
                 if new_songs:
                     # 把新来的歌单独洗乱，然后悄悄垫在牌堆的最底下
@@ -281,10 +224,9 @@ class XiaoMusicDevice:
         # ==========================================
         else:
             self._play_list = copy.copy(latest_list)
-            is_online = self.xiaomusic.music_library.is_online_music(list_name)
 
-            # 如果是本地目录歌单，且列表都是纯字符串，执行本地特定的字母自然排序
-            if not is_online and len(self._play_list) > 0:
+            # 本地目录歌单且列表都是纯字符串时，执行本地特定的字母自然排序
+            if len(self._play_list) > 0:
                 has_non_str_item = any(
                     not isinstance(item, str) for item in self._play_list
                 )
@@ -586,11 +528,9 @@ class XiaoMusicDevice:
 
         # 3. 极速探路器：帮小爱吃下所有的 404/401 炸弹
         if not is_system_or_tts and url and url.startswith("http") and "/proxy/" in url:
-            probe_timeout = self._get_proxy_probe_timeout(origin_url)
-            is_lx_server_music = probe_timeout == LX_SERVER_PROXY_PROBE_TIMEOUT
+            probe_timeout = DEFAULT_PROXY_PROBE_TIMEOUT
             self.log.info(
-                "极速探路启动，触发后端代理解析: "
-                f"timeout={probe_timeout}s lx_server={is_lx_server_music} url={url}"
+                f"极速探路启动，触发后端代理解析: timeout={probe_timeout}s url={url}"
             )
             is_url_ok = False
             try:
@@ -689,11 +629,6 @@ class XiaoMusicDevice:
         # 只有通过了 404 探路存活 -> 发送指令成功 -> 质检测出时长正常，才允许重置清零！
         self._play_failed_cnt = 0
 
-        # 计算自动添加歌曲的延迟时间
-        if sec > 30:
-            sleep_sec = min(sec / 2, 60)
-            await self.auto_add_song(cur_playlist, sleep_sec)
-
         # 计算获取时长的执行耗时
         duration_execution_time = time.time() - self._start_time
         self.log.info(f"获取音乐时长耗时: {duration_execution_time:.3f} 秒")
@@ -713,14 +648,6 @@ class XiaoMusicDevice:
         # 如果当前歌曲大于 2 秒，则在播放 20 秒后悄悄去下载下一首歌
         if sec > 20:
             await self.prefetch_next_song(20)
-
-    def _get_proxy_probe_timeout(self, origin_url):
-        try:
-            if self.xiaomusic.music_library.is_lx_server_proxy_url(origin_url):
-                return LX_SERVER_PROXY_PROBE_TIMEOUT
-        except Exception as e:
-            self.log.debug(f"判断 LX Server 探路超时失败: {e}")
-        return DEFAULT_PROXY_PROBE_TIMEOUT
 
     async def do_tts(self, value):
         """执行TTS（文字转语音）"""
