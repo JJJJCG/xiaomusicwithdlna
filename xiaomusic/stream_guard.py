@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 log = logging.getLogger("xiaomusic.stream_guard")
 
@@ -36,7 +36,9 @@ class StreamHandle:
 
     __slots__ = ("_guard", "_sid", "source", "_closer", "_closed", "created_at")
 
-    def __init__(self, guard: "StreamGuard", sid: int, source: str, closer: Callable[[], None]):
+    def __init__(
+        self, guard: StreamGuard, sid: int, source: str, closer: Callable[[], None]
+    ):
         self._guard = guard
         self._sid = sid
         self.source = source
@@ -74,7 +76,7 @@ class StreamHandle:
         """从登记表注销（连接正常结束时调用）。"""
         self._guard._remove(self._sid)
 
-    def __enter__(self) -> "StreamHandle":
+    def __enter__(self) -> StreamHandle:
         return self
 
     def __exit__(self, *exc):

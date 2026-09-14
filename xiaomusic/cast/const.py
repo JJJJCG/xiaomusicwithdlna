@@ -98,8 +98,13 @@ LATEST_ASK_API = (
 
 # 需要通过 Mina 服务获取对话记录的硬件型号
 GET_ASK_BY_MINA = {
-    "LX04", "L05B", "L05C", "S12", "S12A",
-    "LX5A", "L15A", "L16A", "X6A",
+    "LX04",
+    "L05B",
+    "L05C",
+    "S12",
+    "S12A",
+    "LX5A",
+    "L15A",
+    "L16A",
+    "X6A",
 }
-
-
