@@ -28,7 +28,8 @@ from xiaomusic.api.models import (
 router = APIRouter(dependencies=[Depends(verification)])
 
 
-@router.get("/searchmusic")
+@router.get("/searchmusic", include_in_schema=False)
+@router.get("/api/music/search")
 def searchmusic(name: str = ""):
     """搜索音乐"""
     return xiaomusic.music_library.searchmusic(name)
@@ -95,21 +96,6 @@ async def search_online_playlist_detail(
         return {"success": False, "error": str(e)}
 
 
-@router.get("/api/proxy/real-url")
-async def get_real_music_url(url: str = Query(..., description="原始url")):
-    """通过服务端代理获取真实的URL，不止是音频url,可能还有图片url"""
-    try:
-        # 获取真实的URL
-        real_url = await xiaomusic.get_real_url_of_openapi(url)
-        # 直接重定向到真实URL
-        return RedirectResponse(url=real_url)
-
-    except Exception as e:
-        log.error(f"获取真实URL失败: {e}")
-        # 如果代理获取失败，重定向到原始URL
-        return RedirectResponse(url=url)
-
-
 @router.get("/api/proxy/plugin-url")
 async def get_plugin_source_url(
     data: str = Query(..., description="json对象压缩的base64"),
@@ -173,19 +159,34 @@ async def get_media_lyric(request: Request):
         return {"success": False, "error": str(e)}
 
 
+def _resolve_device_url(data: dict) -> str:
+    """把前端传来的 url 解析成音箱能直连的地址。
+
+    开放平台（LX Server）开启时前端已给出可直连地址，原样返回；
+    否则换成插件源代理地址 `self:///api/proxy/plugin-url?data=...`。
+
+    该解析只此一处：路由层原先调的是 `xiaomusic.get_plugin_proxy_url`，
+    而 XiaoMusic 上并没有这个方法（真名是 OnlineMusicService 的私有方法），
+    异常被 except 吞掉后接口会静默返回失败。
+    """
+    openapi_info = xiaomusic.js_plugin_manager.get_lx_server_info()
+    if openapi_info.get("enabled", False):
+        return data.get("url")
+    return xiaomusic.online_music_service.get_plugin_proxy_url(data)
+
+
 @router.post("/api/device/pushUrl")
 async def device_push_url(request: Request):
-    """推送url给设备端播放"""
+    """推送url给设备端播放
+
+    与 `/playurl` 是同一件事，只是多一步"插件地址解析"，
+    两者最终都走 xiaomusic.play_url 下发。
+    """
     try:
         # 获取请求数据
         data = await request.json()
         did = data.get("did")
-        openapi_info = xiaomusic.js_plugin_manager.get_lx_server_info()
-        if openapi_info.get("enabled", False):
-            url = data.get("url")
-        else:
-            # 调用公共函数处理,获取音乐真实播放URL
-            url = xiaomusic.get_plugin_proxy_url(data)
+        url = _resolve_device_url(data)
         decoded_url = urllib.parse.unquote(url)
         return await xiaomusic.play_url(did=did, arg1=decoded_url)
     except Exception as e:
@@ -212,7 +213,8 @@ async def device_push_list(request: Request):
 """======================在线搜索相关接口END============================="""
 
 
-@router.get("/playingmusic")
+@router.get("/playingmusic", include_in_schema=False)
+@router.get("/api/music/playing")
 def playingmusic(did: str = ""):
     """当前播放音乐"""
     if not xiaomusic.did_exist(did):
@@ -233,13 +235,15 @@ def playingmusic(did: str = ""):
     }
 
 
-@router.get("/musiclist")
+@router.get("/musiclist", include_in_schema=False)
+@router.get("/api/music/list")
 async def musiclist():
     """音乐列表"""
     return xiaomusic.music_library.get_music_list()
 
 
-@router.get("/musicinfo")
+@router.get("/musicinfo", include_in_schema=False)
+@router.get("/api/music/info")
 async def musicinfo(name: str, musictag: bool = False):
     """音乐信息"""
     url, _ = await xiaomusic.music_library.get_music_url(name)
@@ -253,14 +257,10 @@ async def musicinfo(name: str, musictag: bool = False):
     return info
 
 
-@router.get("/musicinfos")
-async def musicinfos(
-    name: list[str] = Query(None),
-    musictag: bool = False,
-):
-    """批量音乐信息"""
+async def _build_music_infos(names, musictag: bool) -> list[dict]:
+    """批量音乐信息（GET/POST 两个入口共用一份实现）。"""
     ret = []
-    for music_name in name:
+    for music_name in names or []:
         url, _ = await xiaomusic.music_library.get_music_url(music_name)
         info = {
             "name": music_name,
@@ -272,30 +272,33 @@ async def musicinfos(
     return ret
 
 
-@router.post("/musicinfos")
+@router.get("/musicinfos", include_in_schema=False)
+@router.get("/api/music/infos")
+async def musicinfos(
+    name: list[str] = Query(None),
+    musictag: bool = False,
+):
+    """批量音乐信息"""
+    return await _build_music_infos(name, musictag)
+
+
+@router.post("/musicinfos", include_in_schema=False)
+@router.post("/api/music/infos")
 async def musicinfos_post(data: MusicInfosQuery):
     """批量音乐信息（POST，避免 URL 过长）"""
-    ret = []
-    for music_name in data.name:
-        url, _ = await xiaomusic.music_library.get_music_url(music_name)
-        info = {
-            "name": music_name,
-            "url": url,
-        }
-        if data.musictag:
-            info["tags"] = await xiaomusic.music_library.get_music_tags(music_name)
-        ret.append(info)
-    return ret
+    return await _build_music_infos(data.name, data.musictag)
 
 
-@router.post("/setmusictag")
+@router.post("/setmusictag", include_in_schema=False)
+@router.post("/api/music/tag")
 async def setmusictag(info: MusicInfoObj):
     """设置音乐标签"""
     ret = xiaomusic.music_library.set_music_tag(info.musicname, info)
     return {"ret": ret}
 
 
-@router.post("/delmusic")
+@router.post("/delmusic", include_in_schema=False)
+@router.post("/api/music/delete")
 async def delmusic(data: MusicItem):
     """删除音乐"""
     log.info(data)
@@ -303,7 +306,8 @@ async def delmusic(data: MusicItem):
     return "success"
 
 
-@router.post("/playmusic")
+@router.post("/playmusic", include_in_schema=False)
+@router.post("/api/music/play")
 async def playmusic(data: DidPlayMusic):
     """播放音乐"""
     did = data.did
@@ -317,7 +321,8 @@ async def playmusic(data: DidPlayMusic):
     return {"ret": "OK"}
 
 
-@router.post("/refreshmusictag")
+@router.post("/refreshmusictag", include_in_schema=False)
+@router.post("/api/music/tag/refresh")
 async def refreshmusictag(Verifcation=Depends(verification)):
     """刷新音乐标签"""
     xiaomusic.music_library.refresh_music_tag()

@@ -12,7 +12,6 @@ import base64
 from collections import deque
 from dataclasses import dataclass
 import logging
-import os
 import queue
 import re
 import socket
@@ -31,6 +30,7 @@ from xiaomusic.cast.airplay.audio_stream import AudioStreamServer
 from xiaomusic.cast.airplay.mdns import AirPlayMDNS
 from xiaomusic.cast.airplay.playfair import PlayFair
 from xiaomusic.cast.airplay import dxxp
+from xiaomusic.utils.network_utils import detect_local_ip
 
 log = logging.getLogger("xiaomusic.cast")
 
@@ -531,31 +531,23 @@ class AirPlayServer:
     def _get_ipv4(self) -> str:
         """获取本机 IPv4 地址。
 
-        优先顺序：传入的 hostname -> MIAIR_HOSTNAME 环境变量 -> 自动探测。
-        必须与 AirPlayMDNS 中广播的 IP 保持一致，否则 AirPlay 1 的 Apple-Response
-        校验会因 IP 不匹配而失败（设备可见但连接失败）。
+        优先顺序：传入的 hostname（来自 config.cast_hostname / XIAOMUSIC_CAST_HOSTNAME）
+        -> 自动探测。必须与 AirPlayMDNS 中广播的 IP 保持一致，否则 AirPlay 1 的
+        Apple-Response 校验会因 IP 不匹配而失败（设备可见但连接失败），
+        因此末端探测与 mdns 共用 utils.network_utils.detect_local_ip。
+
+        注：这里原先读的是 MIAIR_HOSTNAME —— 那是上游 MiAir Next 的环境变量，
+        本项目从未使用，属于移植残留；对应的开关是 config.cast_hostname。
         """
         if self.hostname and self.hostname not in ("0.0.0.0", "127.0.0.1"):
-            # 若 hostname 是合法 IP 则直接使用；否则继续向下探测，
-            # 与 mdns 中的 _get_ip 保持一致。
+            # 若 hostname 是合法 IP 则直接使用；否则继续向下探测
             try:
                 socket.inet_pton(socket.AF_INET, self.hostname)
                 return self.hostname
             except (OSError, ValueError):
                 pass
 
-        hostname = os.getenv("MIAIR_HOSTNAME", "")
-        if hostname and hostname != "127.0.0.1":
-            return hostname
-
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception:
-            return "127.0.0.1"
+        return detect_local_ip()
 
     @property
     def ipv4_bin(self) -> bytes:

@@ -257,9 +257,7 @@ class Config:
     # ---- 投送服务 (DLNA 渲染器 / AirPlay 接收器) ----
     # 协议层移植自 miair-next, 详见 xiaomusic/cast/__init__.py
     # 默认自动启用, 跟随已配置的音箱列表; 无音箱时不启动
-    enable_cast: bool = (
-        os.getenv("XIAOMUSIC_ENABLE_CAST", "true").lower() == "true"
-    )
+    enable_cast: bool = os.getenv("XIAOMUSIC_ENABLE_CAST", "true").lower() == "true"
     # 局域网 IP, 留空则自动探测 (多网卡/容器场景可手动指定)
     cast_hostname: str = os.getenv("XIAOMUSIC_CAST_HOSTNAME", "")
     # DLNA (SSDP + HTTP) 监听端口
@@ -289,6 +287,17 @@ class Config:
     cast_auto_play_on_set_uri: bool = (
         os.getenv("XIAOMUSIC_CAST_AUTO_PLAY_ON_SET_URI", "false").lower() == "true"
     )
+
+    # ---- Home Assistant 接入 (语音控制 HA 设备) ----
+    # 移植自 xiaoai-ha-bridge, 见 xiaomusic/ha/；规则文件 conf/ha_rules.json
+    # 编辑页: http://<host>:<port>/static/ha.html
+    enable_ha: bool = os.getenv("XIAOMUSIC_ENABLE_HA", "false").lower() == "true"
+    # HA 地址, 例如 http://homeassistant.local:8123
+    ha_url: str = os.getenv("XIAOMUSIC_HA_URL", "")
+    # HA 长期访问令牌 (Long-Lived Access Token)
+    ha_token: str = os.getenv("XIAOMUSIC_HA_TOKEN", "")
+    # 执行后是否让小爱语音播报规则里的 reply
+    ha_tts_reply: bool = os.getenv("XIAOMUSIC_HA_TTS_REPLY", "true").lower() == "true"
 
     # ---- 播完自动断开 ----
     # 音乐播完后关闭给音箱推流的 HTTP 长连接（/proxy、DLNA /media、

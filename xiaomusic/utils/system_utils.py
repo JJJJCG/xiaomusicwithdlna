@@ -18,6 +18,19 @@ from requests.utils import cookiejar_from_dict
 
 log = logging.getLogger(__package__)
 
+# 对外返回配置时需要脱敏的字段（别写进日志 / 别回给前端明文）
+SENSITIVE_FIELDS = (
+    "account",
+    "password",
+    "httpauth_username",
+    "httpauth_password",
+    # Home Assistant 长期访问令牌
+    "ha_token",
+)
+
+# 脱敏占位符：前端读到的就是它，保存时按"未修改"处理
+SENSITIVE_PLACEHOLDER = "******"
+
 
 def parse_cookie_string_to_dict(cookie_string: str):
     """
@@ -94,12 +107,7 @@ def deepcopy_data_no_sensitive_info(data, fields_to_anonymize: list = None):
         脱敏后的深拷贝数据
     """
     if fields_to_anonymize is None:
-        fields_to_anonymize = [
-            "account",
-            "password",
-            "httpauth_username",
-            "httpauth_password",
-        ]
+        fields_to_anonymize = SENSITIVE_FIELDS
 
     copy_data = copy.deepcopy(data)
 
@@ -108,14 +116,42 @@ def deepcopy_data_no_sensitive_info(data, fields_to_anonymize: list = None):
         # 对字典进行处理
         for field in fields_to_anonymize:
             if field in copy_data:
-                copy_data[field] = "******"
+                copy_data[field] = SENSITIVE_PLACEHOLDER
     else:
         # 对对象进行处理
         for field in fields_to_anonymize:
             if hasattr(copy_data, field):
-                setattr(copy_data, field, "******")
+                setattr(copy_data, field, SENSITIVE_PLACEHOLDER)
 
     return copy_data
+
+
+def restore_sensitive_placeholders(
+    data: dict, config_obj, fields=None, *, keep_on_empty: bool = True
+) -> dict:
+    """保存设置前，把前端回传的占位符/空值还原成配置里的真实值。
+
+    编辑页读到的是脱敏后的 `******`，若原样存回去就等于把密码清空了，
+    因此所有"保存设置"入口都必须先过这一道。
+
+    历史上 /savesetting、/api/system/modifiysetting、/api/ha/setting
+    各自写了一遍同样的判断（且阈值还不一致），这里收敛成一份。
+
+    Args:
+        data: 待保存的配置字典（原地修改并返回）
+        config_obj: 当前配置对象，提供真实值
+        fields: 需要还原的字段，默认 password / httpauth_password / ha_token
+        keep_on_empty: 字段为空串时是否也视为"不修改"
+    """
+    if fields is None:
+        fields = ("password", "httpauth_password", "ha_token")
+    for field in fields:
+        if field not in data:
+            continue
+        value = data[field]
+        if value == SENSITIVE_PLACEHOLDER or (keep_on_empty and value == ""):
+            data[field] = getattr(config_obj, field, "")
+    return data
 
 
 def try_add_access_control_param(config, url: str) -> str:

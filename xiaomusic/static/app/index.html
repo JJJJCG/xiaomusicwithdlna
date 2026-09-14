@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#12131a" />
+  <title>XiaoMusic 控制台</title>
+  <link rel="icon" href="/static/favicon.ico" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="stylesheet" href="./app.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="/static/xiaoai.png" alt="" width="28" height="28" />
+      <span>XiaoMusic</span>
+    </div>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab is-active" data-view="now" role="tab">播放</button>
+      <button class="tab" data-view="library" role="tab">音乐库</button>
+      <button class="tab" data-view="playlist" role="tab">歌单</button>
+      <button class="tab" data-view="online" role="tab">在线</button>
+      <button class="tab" data-view="setting" role="tab">设置</button>
+    </nav>
+
+    <div class="topbar-right">
+      <label class="device-picker">
+        <span class="sr-only">播放设备</span>
+        <select id="device-select"></select>
+      </label>
+      <button class="icon-btn" id="theme-toggle" title="切换深浅色">◐</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- 播放 -->
+    <section class="view is-active" id="view-now">
+      <div class="now-card">
+        <div class="now-cover" id="now-cover" aria-hidden="true">♪</div>
+        <h2 class="now-title" id="now-title">未在播放</h2>
+        <p class="now-sub" id="now-sub">—</p>
+        <div class="progress">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="progress-time">
+          <span id="pos-text">0:00</span>
+          <span id="dur-text">0:00</span>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button class="round" data-cmd="上一首" title="上一首">⏮</button>
+        <button class="round round-lg" data-cmd="暂停播放" id="btn-toggle" title="播放/暂停">⏯</button>
+        <button class="round" data-cmd="下一首" title="下一首">⏭</button>
+        <button class="round" data-cmd="停止播放" title="停止">⏹</button>
+      </div>
+
+      <div class="volume-row">
+        <span class="vol-icon" id="vol-icon">🔊</span>
+        <input type="range" id="volume" min="0" max="100" step="1" value="0" />
+        <span class="vol-value" id="vol-value">0</span>
+      </div>
+
+      <div class="mode-row" id="mode-row">
+        <button class="chip" data-cmd="顺序播放">顺序</button>
+        <button class="chip" data-cmd="随机播放">随机</button>
+        <button class="chip" data-cmd="单曲循环">单曲</button>
+        <button class="chip" data-cmd="全部循环">全部</button>
+      </div>
+
+      <details class="custom-cmd">
+        <summary>自定义口令</summary>
+        <div class="inline-form">
+          <input type="text" id="cmd-input" placeholder="例如：播放歌曲 晴天" />
+          <button class="btn" id="cmd-send">发送</button>
+        </div>
+      </details>
+    </section>
+
+    <!-- 音乐库 -->
+    <section class="view" id="view-library">
+      <div class="toolbar">
+        <select id="lib-list-select"></select>
+        <input type="search" id="lib-filter" placeholder="在列表中筛选…" />
+        <span class="counter" id="lib-count"></span>
+      </div>
+      <ul class="list" id="lib-items"></ul>
+      <button class="btn more" id="lib-more" hidden>加载更多</button>
+    </section>
+
+    <!-- 歌单 -->
+    <section class="view" id="view-playlist">
+      <div class="toolbar">
+        <select id="pl-select"></select>
+        <input type="text" id="pl-new-name" placeholder="新歌单名称" />
+        <button class="btn" id="pl-add">新建</button>
+        <button class="btn danger" id="pl-del">删除</button>
+        <button class="btn" id="pl-rename">重命名</button>
+      </div>
+      <ul class="list" id="pl-items"></ul>
+      <button class="btn more" id="pl-more" hidden>加载更多</button>
+    </section>
+
+    <!-- 在线 -->
+    <section class="view" id="view-online">
+      <div class="toolbar">
+        <input type="search" id="online-keyword" placeholder="搜索在线音乐…" />
+        <button class="btn" id="online-search">搜索</button>
+      </div>
+      <ul class="list" id="online-items"></ul>
+      <p class="hint" id="online-hint">搜索后点击结果即可推送到音箱播放。</p>
+    </section>
+
+    <!-- 设置 -->
+    <section class="view" id="view-setting">
+      <div class="toolbar">
+        <input type="search" id="setting-filter" placeholder="筛选设置项…" />
+        <button class="btn" id="setting-save">保存修改</button>
+        <button class="btn" id="setting-reload">重新加载</button>
+        <span class="counter" id="setting-count"></span>
+      </div>
+      <div id="setting-form" class="setting-form"></div>
+      <p class="hint">
+        只提交被修改过的项。密码 / 令牌显示为 <code>******</code> 表示不修改。<br />
+        相关工具：<a href="/static/ha.html" target="_blank" rel="noopener">HA 规则编辑页</a> ·
+        <a href="/static/tools/merge/index.html" target="_blank" rel="noopener">歌单导出</a> ·
+        <a href="/static/tools/m3u.html" target="_blank" rel="noopener">M3U 生成</a>
+      </p>
+    </section>
+  </main>
+
+  <!-- 迷你播放条：切到其它视图时仍可控制 -->
+  <footer class="playbar" id="playbar">
+    <span class="playbar-title" id="bar-title">未在播放</span>
+    <div class="progress progress-thin"><div class="progress-bar" id="bar-progress"></div></div>
+    <button class="round round-sm" data-cmd="上一首">⏮</button>
+    <button class="round round-sm" data-cmd="暂停播放">⏯</button>
+    <button class="round round-sm" data-cmd="下一首">⏭</button>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+
+</html>

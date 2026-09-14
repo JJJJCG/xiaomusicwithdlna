@@ -28,6 +28,12 @@ from xiaomusic.const import (
     TTS_COMMAND,
 )
 from xiaomusic.events import DEVICE_CONFIG_CHANGED
+from xiaomusic.utils.device_utils import (
+    DEFAULT_AUDIO_ID,
+    fetch_player_info,
+    search_audio_id,
+    split_song_artist,
+)
 from xiaomusic.utils.file_utils import chmodfile
 from xiaomusic.utils.text_utils import (
     custom_sort_key,
@@ -37,6 +43,37 @@ from xiaomusic.utils.text_utils import (
 
 DEFAULT_PROXY_PROBE_TIMEOUT = 3.0
 LX_SERVER_PROXY_PROBE_TIMEOUT = 8.0
+
+# 下发播放用的 API 分支（本地播放与投送共用，见 resolve_play_api）
+PLAY_API_CONTINUE_PLAY = "continue_play"
+PLAY_API_MUSIC = "music_api"
+PLAY_API_URL = "url"
+
+
+def resolve_play_api(config, hardware) -> str:
+    """选择下发播放用的 API。
+
+    本地播放（device_player.play_one_url）与投送播放
+    （cast/speaker_adapter.py）都走这一个判断，避免两边漂移 —— 历史上
+    投送侧漏了 continue_play 分支的 _type=1，同一台音箱用两种方式播放
+    实际调用的是不同接口。
+
+    Returns:
+        PLAY_API_CONTINUE_PLAY: play_by_music_url(..., _type=1)，
+            继续播放/触屏歌词模式（xiaomusic 默认开启）
+        PLAY_API_MUSIC: play_by_music_url(...)，
+            use_music_api 开启或机型强制走音乐接口
+        PLAY_API_URL: play_by_url(...)
+
+    分支顺序与原 play_one_url 的 if/elif/else 完全一致。
+    """
+    if getattr(config, "continue_play", False):
+        return PLAY_API_CONTINUE_PLAY
+    if getattr(config, "use_music_api", False):
+        return PLAY_API_MUSIC
+    if hardware in NEED_USE_PLAY_MUSIC_API:
+        return PLAY_API_MUSIC
+    return PLAY_API_URL
 
 
 class XiaoMusicDevice:
@@ -505,6 +542,12 @@ class XiaoMusicDevice:
 
     async def _playmusic(self, name):
         """播放音乐的核心实现"""
+        # 上一首的兜底轮询必须先停：它原本会一直跑到下一次 start_stream_watch()，
+        # 而中间隔着 group_force_stop_xiaoai()（音箱被主动暂停）以及各条失败重试
+        # 分支（那些分支不会再 start_stream_watch），旧任务会拿"音箱已停止"的
+        # 采样结果累到阈值，误断开本次或别处的推流。
+        self.cancel_stream_watch()
+
         # 取消组内所有的下一首歌曲的定时器
         await self.cancel_group_next_timer()
 
@@ -981,6 +1024,11 @@ class XiaoMusicDevice:
 
     async def group_player_play(self, url, name=""):
         """同一组设备播放"""
+        # 兜底轮询只对"当前这次播放"有意义：任何一次新的下发（本地播放 /
+        # TTS / /playurl 接口）都先停掉旧的那条；下载成功后由 _playmusic()
+        # 重新 start_stream_watch()。否则旧任务可能用旧的采样结果把本次
+        # 刚建立的推流断掉。
+        self.cancel_stream_watch()
         device_id_list = self.xiaomusic.device_manager.get_group_device_id_list(
             self.group_name
         )
@@ -996,16 +1044,15 @@ class XiaoMusicDevice:
         ret = None
         try:
             audio_id = await self._get_audio_id(name)
-            if self.config.continue_play:
+            play_api = resolve_play_api(self.config, self.hardware)
+            if play_api == PLAY_API_CONTINUE_PLAY:
                 ret = await self.auth_manager.mina_service.play_by_music_url(
                     device_id, url, _type=1, audio_id=audio_id
                 )
                 self.log.info(
                     f"play_one_url continue_play device_id:{device_id} ret:{ret} url:{url} audio_id:{audio_id}"
                 )
-            elif self.config.use_music_api or (
-                self.hardware in NEED_USE_PLAY_MUSIC_API
-            ):
+            elif play_api == PLAY_API_MUSIC:
                 ret = await self.auth_manager.mina_service.play_by_music_url(
                     device_id, url, audio_id=audio_id
                 )
@@ -1022,60 +1069,29 @@ class XiaoMusicDevice:
         return ret
 
     async def _get_audio_id(self, name):
-        """获取音频ID"""
-        audio_id = self.config.use_music_audio_id or "1582971365183456177"
+        """获取音频ID
+
+        匹配逻辑与投送侧共用（utils.device_utils.search_audio_id），只保留
+        本地播放特有的两条策略：未启用 music_api/continue_play 时不查曲库；
+        查不到时回退配置里的默认 audio_id（投送侧要求返回空串再由调用方决定）。
+        """
+        audio_id = self.config.use_music_audio_id or DEFAULT_AUDIO_ID
         if not (self.config.use_music_api or self.config.continue_play):
             return str(audio_id)
 
-        # 如果 name 为空（如播放 TTS 时），坚决不请求小米接口，会导致小米账号报错。
-        name = name.strip() if name else ""
-        if not name:
+        # 歌名为空（如播放 TTS 时）不请求小米接口，会导致小米账号报错
+        song, artist = split_song_artist(name)
+        if not song:
             self.log.debug(
                 "歌名为空(可能是TTS播报)，直接使用默认 audio_id，跳过小米接口查询。"
             )
             return str(audio_id)
-        # 修复结束
 
         try:
-            params = {
-                "query": name,
-                "queryType": 1,
-                "offset": 0,
-                "count": 6,
-                "timestamp": int(time.time_ns() / 1000),
-            }
-            response = await self.auth_manager.mina_service.mina_request(
-                "/music/search", params
-            )
-            song_list = response.get("data", {}).get("songList", [])
-
-            if song_list:
-                # 先默认拿匹配到的第一首的id垫底（容错兜底）
-                audio_id = song_list[0].get("audioID")
-                # 把传进来的 "歌名-歌手" 拆开
-                target_song = name
-                target_artist = ""
-                if "-" in name:
-                    parts = name.split("-", 1)
-                    target_song = parts[0].strip()
-                    target_artist = parts[1].strip()
-                # 歌手如果有多个只取第一个去匹配
-                first_artist = target_artist
-                if first_artist:
-                    for sep in [";", "；", ",", "，", "&", "、", "/"]:
-                        first_artist = first_artist.replace(sep, "|")
-                    first_artist = first_artist.split("|")[0].strip()
-                # 歌名完全相等，歌手 in 包含
-                for song in song_list:
-                    s_name = song.get("name", "")
-                    s_artist = song.get("artist", {}).get("name", "")
-                    if target_song.lower() == s_name.lower():
-                        if not first_artist or first_artist.lower() in s_artist.lower():
-                            audio_id = song.get("audioID")
-                            break
-
+            found = await search_audio_id(self.auth_manager.mina_service, song, artist)
+            if found:
+                audio_id = found
             self.log.debug(f"_get_audio_id. name: {name} 最终使用的 songId:{audio_id}")
-
         except Exception as e:
             self.log.error(f"_get_audio_id 获取失败: {e}")
 
@@ -1141,14 +1157,12 @@ class XiaoMusicDevice:
         """获取音量"""
         volume = 0
         try:
-            playing_info = await self.auth_manager.mina_service.player_get_status(
-                self.device_id
+            info = await fetch_player_info(
+                self.auth_manager.mina_service, self.device_id
             )
-            self.log.info(f"get_volume. playing_info:{playing_info}")
-            volume = json.loads(playing_info.get("data", {}).get("info", "{}")).get(
-                "volume", 0
-            )
+            volume = info.get("volume", 0)
         except Exception as e:
+            # 本地侧沿用"失败即 0"的容错语义（投送侧要抛出，见 cast/speaker_adapter）
             self.log.warning(f"Execption {e}")
         volume = int(volume)
         self.log.info("get_volume. volume:%d", volume)
@@ -1157,11 +1171,10 @@ class XiaoMusicDevice:
     async def get_player_status(self):
         """获取完整播放状态"""
         try:
-            playing_info = await self.auth_manager.mina_service.player_get_status(
-                self.device_id
+            info = await fetch_player_info(
+                self.auth_manager.mina_service, self.device_id
             )
-            self.log.info(f"get_player_status. playing_info:{playing_info}")
-            info = json.loads(playing_info.get("data", {}).get("info", "{}"))
+            self.log.info(f"get_player_status. info:{info}")
             return info
         except Exception as e:
             self.log.warning(f"Execption {e}")
@@ -1339,6 +1352,13 @@ class XiaoMusicDevice:
             self._prefetch_timer.cancel()
             self._prefetch_timer = None
             self.log.info("cancel_all_timer _prefetch_timer.cancel")
+
+        # 播完自动断开的兜底轮询：设备对象被重建/移除时必须一起取消，
+        # 否则旧实例的任务会继续轮询音箱状态，并可能断开新实例的推流
+        if self._stream_watch_task:
+            self._stream_watch_task.cancel()
+            self._stream_watch_task = None
+            self.log.info("cancel_all_timer _stream_watch_task.cancel")
 
     @classmethod
     def dict_clear(cls, d):

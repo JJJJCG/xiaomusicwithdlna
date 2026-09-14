@@ -25,6 +25,7 @@ from xiaomusic.crontab import Crontab
 from xiaomusic.device_manager import DeviceManager
 from xiaomusic.events import CONFIG_CHANGED, DEVICE_CONFIG_CHANGED, EventBus
 from xiaomusic.file_watcher import FileWatcherManager
+from xiaomusic.ha import HABridge
 from xiaomusic.music_library import MusicLibrary
 from xiaomusic.online_music import OnlineMusicService
 from xiaomusic.plugin import PluginManager
@@ -66,6 +67,9 @@ class XiaoMusic:
 
         # 投送服务 (DLNA 渲染器 / AirPlay 接收器)，在登录完成后启动
         self.cast_manager = None
+
+        # Home Assistant 接入 (语音控制 HA 设备)，规则文件按需装载
+        self.ha_bridge = HABridge(self)
 
         # 初始化在线音乐服务（延迟初始化，在 js_plugin_manager 之后）
         self.online_music_service = None
@@ -277,18 +281,28 @@ class XiaoMusic:
         finally:
             # 退出或被取消时释放 SSDP / mDNS 端口与注册，避免重启时端口残留
             await self.stop_cast()
+            # 未到点的延迟指令也一起撤掉
+            await self.ha_bridge.cancel_delays()
 
     async def start_cast(self):
         """启动 DLNA / AirPlay 投送服务（幂等，无音箱时不启动）。"""
         if not self.config.enable_cast:
             self.log.info("投送服务已关闭 (enable_cast=false)，跳过 DLNA/AirPlay")
             return
-        if self.cast_manager is None:
-            from xiaomusic.cast import CastManager
-
-            self.cast_manager = CastManager(self)
         try:
+            # 导入必须放在 try 内：投送依赖 (av / zeroconf) 缺失、
+            # 或移植代码在 import 期抛错时，只能让投送功能不可用，
+            # 绝不能把 run_forever 一起掀掉（那会连带停掉语音控制）。
+            if self.cast_manager is None:
+                from xiaomusic.cast import CastManager
+
+                self.cast_manager = CastManager(self)
             await self.cast_manager.start()
+        except ImportError as e:
+            self.cast_manager = None
+            self.log.warning(
+                f"投送功能不可用（依赖缺失，请安装 av / zeroconf 后重启）: {e}"
+            )
         except Exception as e:
             # 投送服务失败不应影响音乐播放主流程
             self.log.warning(f"投送服务启动失败，音乐播放功能不受影响: {e}")
@@ -319,6 +333,14 @@ class XiaoMusic:
     async def do_check_cmd(self, did="", query="", ctrl_panel=True, **kwargs):
         """检查并执行命令（委托给 command_handler）"""
         return await self.command_handler.do_check_cmd(did, query, ctrl_panel, **kwargs)
+
+    async def ha_control(self, did="", arg1="", **kwargs):
+        """Home Assistant 指令（command_handler 匹配到 HA 规则时调到这里）。
+
+        arg1 是用户原话，由 xiaomusic.ha.HABridge 负责解析、调用 HA 服务、
+        播报回复，并处理"X 分钟后执行"与"每天 X 点"两种定时。
+        """
+        return await self.ha_bridge.handle(did, arg1)
 
     # 重置计时器
     async def reset_timer_when_answer(self, answer_length, did):
@@ -453,11 +475,6 @@ class XiaoMusic:
         return await self.online_music_service.get_playlist_detail_online(
             id=id, plugin=plugin, api_type=api_type, **kwargs
         )
-
-    @staticmethod
-    async def get_real_url_of_openapi(url: str, timeout: int = 10) -> str:
-        """委托给 OnlineMusicService 的静态方法"""
-        return await OnlineMusicService.get_real_url_of_openapi(url, timeout)
 
     # 调用MusicFree插件获取歌曲列表（委托给 online_music_service）
     async def get_music_list_mf(

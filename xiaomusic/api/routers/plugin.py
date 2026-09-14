@@ -234,15 +234,6 @@ def get_openapi_info():
         return {"success": False, "error": str(e)}
 
 
-@router.post("/api/lxServer/toggle")
-def toggle_openapi():
-    """开放接口状态切换"""
-    try:
-        return xiaomusic.js_plugin_manager.toggle_openapi()
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
 @router.post("/api/lxServer/updateUrl")
 async def update_openapi_url(request: Request):
     """更新开放接口地址"""

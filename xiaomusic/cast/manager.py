@@ -71,6 +71,16 @@ class CastManager:
             dids = ()
         return (cfg, dids)
 
+    def _mark_signature_handled(self):
+        """记录「当前配置 + 设备列表已处理过」。
+
+        服务没有真正启动时（无音箱 / enable_cast 关闭）也要记录：
+        否则每次保存设置都会走一遍 stop()+start() 的空转，
+        日志里出现毫无意义的「正在重启 DLNA/AirPlay」。
+        投送配置或设备列表一变签名就变，仍会正常触发启动。
+        """
+        self._signature = self._current_signature()
+
     # ---- 查询 ----
 
     def get_renderer_by_did(self, did: str) -> DLNARenderer | None:
@@ -81,8 +91,12 @@ class CastManager:
         """给 Web/API 用的运行状态快照。"""
         return {
             "running": self.running,
-            "hostname": self._cast_config.hostname if hasattr(self, "_cast_config") else "",
-            "dlna_port": self._cast_config.dlna_port if hasattr(self, "_cast_config") else 0,
+            "hostname": self._cast_config.hostname
+            if hasattr(self, "_cast_config")
+            else "",
+            "dlna_port": self._cast_config.dlna_port
+            if hasattr(self, "_cast_config")
+            else 0,
             "renderers": [
                 {
                     "did": did,
@@ -93,7 +107,9 @@ class CastManager:
                 for did, udn in self._did_to_udn.items()
                 if udn in self.renderers
             ],
-            "airplay": sorted(self.airplay_manager.speaker_airplays) if self.airplay_manager else [],
+            "airplay": sorted(self.airplay_manager.speaker_airplays)
+            if self.airplay_manager
+            else [],
         }
 
     # ---- 启停 ----
@@ -104,11 +120,14 @@ class CastManager:
             return
         if not getattr(self.config, "enable_cast", True):
             self.log.info("[CAST] enable_cast 为关闭，跳过 DLNA/AirPlay 启动")
+            self._mark_signature_handled()
             return
 
         try:
             await self._start_locked()
         except Exception as e:
+            # 故意不记录签名：启动失败属于可重试状态，
+            # 下次配置变更 / reinit 会再试一次
             self.log.warning(f"[CAST] 启动 DLNA/AirPlay 失败: {e}")
             self.running = False
             await self._clear_runtime()
@@ -119,6 +138,7 @@ class CastManager:
         )
         if not controllers:
             self.log.info("[CAST] 没有可用的音箱，DLNA/AirPlay 未启动")
+            self._mark_signature_handled()
             return
 
         self._cast_config = CastConfig(self.config)
@@ -156,7 +176,7 @@ class CastManager:
         await self.airplay_manager.start_for_speakers(controllers)
 
         self.running = True
-        self._signature = self._current_signature()
+        self._mark_signature_handled()
         self.log.info(
             f"[CAST] DLNA/AirPlay 启动完成，共 {len(self.renderers)} 个音箱；"
             f"手机投送现在应能发现这些设备"
@@ -174,9 +194,14 @@ class CastManager:
 
         xiaomusic 保存设置时会走 reinit()，若每次都无条件重启 DLNA/AirPlay，
         用户改一个无关选项就会打断正在进行的手机投送。
+
+        判据是「签名是否与上次已处理的输入一致」，而不是「是否运行中」：
+        无音箱 / enable_cast 关闭时签名同样会被记录（见 _mark_signature_handled），
+        所以那种情况下保存设置不会白跑一遍 stop()+start()；
+        而设备列表或投送配置一旦变化，签名就变，仍会正常启动。
         """
         signature = self._current_signature()
-        if self.running and signature == self._signature:
+        if signature == self._signature:
             self.log.debug("[CAST] 投送相关配置未变化，保持服务运行")
             return
         await self.restart(reason)

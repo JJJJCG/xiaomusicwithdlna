@@ -164,6 +164,79 @@ docker run -p 58090:8090 -v /xiaomusic_music:/app/music -v /xiaomusic_conf:/app/
 > [!TIP]
 > **隐藏玩法**：对小爱同学说"播放歌曲小猪佩奇的故事"，会先下载小猪佩奇的故事，然后再播放。
 
+### 🏠 接入 Home Assistant
+
+把小爱音箱变成 HA 的语音入口：说一句中文口令 → 调用 HA 服务 → 小爱语音回话。
+登录、对话轮询、TTS 都复用本项目既有链路，只多了一遍"口语 → HA 服务调用"的映射。
+
+**配置**（`conf/setting.json`，或用环境变量）：
+
+```json
+{
+  "enable_ha": true,
+  "ha_url": "http://homeassistant.local:8123",
+  "ha_token": "在 HA 里 用户资料 → 长期访问令牌 生成",
+  "ha_tts_reply": true
+}
+```
+
+环境变量依次为 `XIAOMUSIC_ENABLE_HA` / `XIAOMUSIC_HA_URL` / `XIAOMUSIC_HA_TOKEN` / `XIAOMUSIC_HA_TTS_REPLY`。
+
+**规则编辑页**：启动后打开 `http://<host>:<port>/static/ha.html`
+（可测试连接、拉取实体与服务、增删改规则、试解析、导入导出、管理定时任务）。
+规则存在 `conf/ha_rules.json`，改这个文件会在下次语音时自动热更新。
+
+**规则示例**：
+
+```json
+[
+  {
+    "pattern": "每天{num}点开客厅灯",
+    "action": {
+      "domain": "light", "service": "turn_on",
+      "entity_id": "light.living_room",
+      "type": "schedule", "schedule_time": "{0}:00", "schedule_days": "每天",
+      "reply": "好的"
+    }
+  },
+  {
+    "pattern": "(打开|开)(客厅灯)",
+    "action": { "domain": "light", "service": "turn_on",
+                "entity_id": "light.living_room", "reply": "好的，客厅灯已打开" }
+  },
+  {
+    "pattern": "把客厅灯调到{num}[%％]",
+    "action": { "domain": "light", "service": "turn_on",
+                "entity_id": "light.living_room", "brightness_pct": "{0}",
+                "reply": "好的，亮度已调到 {0}" }
+  },
+  {
+    "pattern": "客厅空调{num}分钟后关闭",
+    "action": { "domain": "climate", "service": "turn_off",
+                "entity_id": "climate.living_room_ac", "delay_minutes": "{0}",
+                "reply": "好的，{0} 分钟后关闭客厅空调" }
+  }
+]
+```
+
+- `pattern` 是正则，`{num}` 代表数字（捕获后可用 `{0}` 回填到任意字段）；`reply` 支持回填。
+- `action` 除 `domain`/`service`/`entity_id` 外，其余键（如 `brightness_pct`、`temperature`）
+  会原样作为服务的 `data` 发给 HA。
+- 特例字段：`reply` 走 TTS、`delay_minutes` 到点后才执行、`type: "schedule"` 会在 HA 里
+  创建一条定时自动化（`schedule_time` 必填，`schedule_days` 支持 `每天` / `工作日` / `周一,周三` 等）。
+- **顺序即优先级**：规则先匹配先命中，所以"每天 X 点…"这类具体规则要放在通用规则**前面**。
+
+**优先级**：完全匹配的音乐口令（如只喊"关闭"）→ HA 规则 → 音乐口令的关键词模糊匹配。
+所以"关闭客厅空调"会走 HA，而"关闭"仍然是停止播放；`enable_ha=false` 时行为与原来完全一致。
+
+**HTTP 接口**：`/api/ha/status`、`/api/ha/rules`(GET/PUT)、`/api/ha/rules/test`、
+`/api/ha/test`、`/api/ha/setting`、`/api/ha/entities`、`/api/ha/services`、
+`/api/ha/automations`、`DELETE /api/ha/automations/{id}`。
+
+> [!NOTE]
+> 定时任务由本程序在 HA 里创建，id 以 `xiaomusic_ha_` 开头；删除接口只允许删这个前缀的任务，
+> 不会误删你自己写的自动化。
+
 ## 📦 安装方式
 
 ### 方式一：Docker Compose（推荐）
@@ -235,6 +308,56 @@ docker build -t xiaomusic .
 - **后端**：Python + FastAPI 框架
 - **容器化**：Docker
 - **前端**：jQuery
+
+### 🧩 分层与"唯一实现"约定
+
+本项目由三家代码合并而成（XiaoMusic 主体 / MiAir Next 的 `cast/` / xiaoai-ha-bridge 的 `ha/`），
+同一件事历史上被实现过两三次（严格程度还不一致），已经踩过坑。改代码前请先看这张表，
+**新功能请复用下表的唯一实现，不要再写第二份**：
+
+| 一件事 | 唯一实现 | 谁在复用 |
+|---|---|---|
+| 走哪个播放 API（continue_play / music_api / url） | `device_player.resolve_play_api()` | 本地播放、`cast/speaker_adapter` |
+| 读播放状态并解析 `info` | `utils/device_utils.fetch_player_info()` | `device_player.get_volume/get_player_status`（失败回退 0）、`SpeakerController.get_status`（失败抛出） |
+| 搜小米曲库换 audioID | `utils/device_utils.search_audio_id()` | `device_player._get_audio_id`（未命中回退默认值）、`SpeakerController.search_audio_id`（未命中返回空串） |
+| `"歌名-歌手"` 拆分 | `utils/device_utils.split_song_artist()` | `device_player` |
+| 本机局域网 IP | `utils/network_utils.detect_local_ip()` | DLNA 广告、AirPlay mDNS、AirPlay server（三处必须同一 IP，否则"设备可见但连接失败"） |
+| 敏感字段脱敏 / 还原 | `utils/system_utils.SENSITIVE_FIELDS` / `restore_sensitive_placeholders()` | `getsetting`、`savesetting`、`modifiysetting`、`/api/ha/setting` |
+| 批量音乐信息 | `api/routers/music._build_music_infos()` | `GET /musicinfos`、`POST /musicinfos` |
+| 下载/代理推流核心 | `api/routers/file._proxy_handler()` | `/proxy`、`/proxy/{type}` |
+
+**注意**：`fetch_player_info` 与 `search_audio_id` 只负责"怎么做"，
+**失败语义由调用方决定**（本地侧吞异常回退、投送侧必须抛出）——这是有意为之，
+不要为了"统一"把两边改成一样，DLNA 侧把失败伪装成"已停止"会触发错误的暂停/续播。
+
+### 🖥️ 前端与接口约定
+
+**新版控制台（`static/app/`）**：默认入口，原生 ES module + 原生 CSS，
+不依赖 jQuery / Vue / 构建工具，单页内含「播放 / 音乐库 / 歌单 / 在线 / 设置」五个视图。
+旧的 `static/default/` 与 `static/tailwind/` 已重写并只保留跳转桩（旧书签仍可用）。
+
+其余 UI（`pure` / `soundSpace` / `xplayer` / `onlineSearch` / `iwebplayer`）保持原样，
+其中前三套是 Vite 构建产物，仓库内没有源码，改动需回到各自项目。
+
+**接口命名**：新路径统一用 `/api/` 前缀；历史裸路径全部保留为别名，
+两者由**同一个处理函数**注册（堆叠 decorator，不是转发），行为完全一致。
+写新代码请用 `/api/` 前缀，旧路径只做兼容、不再扩展：
+
+| 领域 | 新路径示例 |
+|---|---|
+| 设备 | `/api/device/list`、`/api/device/volume`、`/api/device/cmd`、`/api/device/play/url`、`/api/device/stop` |
+| 音乐 | `/api/music/list`、`/api/music/infos`、`/api/music/playing`、`/api/music/play`、`/api/music/search` |
+| 歌单 | `/api/playlist/names`、`/api/playlist/musics`、`/api/playlist/add`、`/api/playlist/music/add` |
+| 系统 | `/api/system/setting`(GET/POST)、`/api/system/version`、`/api/system/log` |
+
+音频/封面/代理这类**要嵌进音箱播放地址**的路径（`/music/…`、`/picture/…`、`/proxy/…`）
+不加 `/api` 前缀，避免影响设备端拉流。
+
+**已移除**：下载工具（`/downloadplaylist`、`/downloadonemusic`、`/download_progress`
+及任务队列的暂停/恢复/停止/删除/重启接口）与其前端页面。
+注意"下载"的内部实现仍在：在线播放一首非本地歌曲时，
+`device_player.download()` 会用 yt-dlp 先落盘再播放，这条链路没有动。
+`/downloadjson` 也与下载无关（它是"拉取远程 JSON 填进设置"），保留。
 
 ## 📱 设备支持
 
@@ -382,5 +505,7 @@ docker build -t xiaomusic .
 
 本项目原有代码来自 [XiaoMusic](https://github.com/hanxi/xiaomusic)（MIT）；
 投送功能（DLNA / AirPlay，`xiaomusic/cast/`）移植自
-[MiAir Next](https://github.com/deerwan/miair-next)（GPL-3.0-or-later）。
+[MiAir Next](https://github.com/deerwan/miair-next)（GPL-3.0-or-later）；
+Home Assistant 接入（`xiaomusic/ha/`）参考并部分移植自
+[xiaoai-ha-bridge](https://github.com/chenshuhe/xiaoai-ha-bridge)（MIT）。
 组合作品整体按 GPL-3.0-or-later 分发，各组件的出处与原始署名见 [NOTICE](NOTICE)。

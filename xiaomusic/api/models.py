@@ -48,18 +48,6 @@ class DidPlayMusicList(BaseModel):
     musicname: str = ""
 
 
-class DownloadPlayList(BaseModel):
-    dirname: str
-    url: str
-
-
-class DownloadOneMusic(BaseModel):
-    name: str = ""
-    url: str
-    dirname: str = ""
-    playlist_name: str = ""
-
-
 class PlayListObj(BaseModel):
     name: str = ""  # 歌单名
 

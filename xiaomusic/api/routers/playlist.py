@@ -20,7 +20,8 @@ from xiaomusic.api.models import (
 router = APIRouter(dependencies=[Depends(verification)])
 
 
-@router.get("/curplaylist")
+@router.get("/curplaylist", include_in_schema=False)
+@router.get("/api/playlist/current")
 async def curplaylist(did: str = ""):
     """当前播放列表"""
     if not xiaomusic.did_exist(did):
@@ -28,7 +29,8 @@ async def curplaylist(did: str = ""):
     return xiaomusic.get_cur_play_list(did)
 
 
-@router.post("/playmusiclist")
+@router.post("/playmusiclist", include_in_schema=False)
+@router.post("/api/playlist/play")
 async def playmusiclist(data: DidPlayMusicList):
     """播放音乐列表"""
     did = data.did
@@ -42,7 +44,8 @@ async def playmusiclist(data: DidPlayMusicList):
     return {"ret": "OK"}
 
 
-@router.post("/playlistadd")
+@router.post("/playlistadd", include_in_schema=False)
+@router.post("/api/playlist/add")
 async def playlistadd(data: PlayListObj):
     """新增歌单"""
     ret = xiaomusic.music_library.play_list_add(data.name)
@@ -51,7 +54,8 @@ async def playlistadd(data: PlayListObj):
     return {"ret": "Add failed, may be already exist."}
 
 
-@router.post("/playlistdel")
+@router.post("/playlistdel", include_in_schema=False)
+@router.post("/api/playlist/delete")
 async def playlistdel(data: PlayListObj):
     """移除歌单"""
     ret = xiaomusic.music_library.play_list_del(data.name)
@@ -60,7 +64,8 @@ async def playlistdel(data: PlayListObj):
     return {"ret": "Del failed, may be not exist."}
 
 
-@router.post("/playlistupdatename")
+@router.post("/playlistupdatename", include_in_schema=False)
+@router.post("/api/playlist/rename")
 async def playlistupdatename(data: PlayListUpdateObj):
     """修改歌单名字"""
     ret = xiaomusic.music_library.play_list_update_name(data.oldname, data.newname)
@@ -69,7 +74,8 @@ async def playlistupdatename(data: PlayListUpdateObj):
     return {"ret": "Update failed, may be not exist."}
 
 
-@router.get("/playlistnames")
+@router.get("/playlistnames", include_in_schema=False)
+@router.get("/api/playlist/names")
 async def getplaylistnames():
     """获取所有自定义歌单"""
     names = xiaomusic.music_library.get_play_list_names()
@@ -80,7 +86,8 @@ async def getplaylistnames():
     }
 
 
-@router.post("/playlistaddmusic")
+@router.post("/playlistaddmusic", include_in_schema=False)
+@router.post("/api/playlist/music/add")
 async def playlistaddmusic(data: PlayListMusicObj):
     """歌单新增歌曲"""
     ret = xiaomusic.music_library.play_list_add_music(data.name, data.music_list)
@@ -89,7 +96,8 @@ async def playlistaddmusic(data: PlayListMusicObj):
     return {"ret": "Add failed, may be playlist not exist."}
 
 
-@router.post("/playlistdelmusic")
+@router.post("/playlistdelmusic", include_in_schema=False)
+@router.post("/api/playlist/music/delete")
 async def playlistdelmusic(data: PlayListMusicObj):
     """歌单移除歌曲"""
     ret = xiaomusic.music_library.play_list_del_music(data.name, data.music_list)
@@ -98,7 +106,8 @@ async def playlistdelmusic(data: PlayListMusicObj):
     return {"ret": "Del failed, may be playlist not exist."}
 
 
-@router.post("/playlistupdatemusic")
+@router.post("/playlistupdatemusic", include_in_schema=False)
+@router.post("/api/playlist/music/update")
 async def playlistupdatemusic(data: PlayListMusicObj):
     """歌单更新歌曲"""
     ret = xiaomusic.music_library.play_list_update_music(data.name, data.music_list)
@@ -107,7 +116,8 @@ async def playlistupdatemusic(data: PlayListMusicObj):
     return {"ret": "Del failed, may be playlist not exist."}
 
 
-@router.get("/playlistmusics")
+@router.get("/playlistmusics", include_in_schema=False)
+@router.get("/api/playlist/musics")
 async def getplaylist(name: str):
     """获取歌单中所有歌曲"""
     ret, musics = xiaomusic.music_library.play_list_musics(name)

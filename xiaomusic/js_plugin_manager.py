@@ -493,29 +493,6 @@ class JSPluginManager:
             self.log.error(f"Failed to read LX Server info from config: {e}")
             return {}
 
-    def toggle_openapi(self) -> dict[str, Any]:
-        """切换开放接口配置状态"""
-        try:
-            if os.path.exists(self.plugins_config_path):
-                with open(self.plugins_config_path, encoding="utf-8") as f:
-                    config_data = json.load(f)
-
-                openapi_info = config_data.get("lx_server_info", {})
-                current_enabled = openapi_info.get("enabled", False)
-                openapi_info["enabled"] = not current_enabled
-                config_data["lx_server_info"] = openapi_info
-
-                with open(self.plugins_config_path, "w", encoding="utf-8") as f:
-                    json.dump(config_data, f, ensure_ascii=False, indent=2)
-                # 使缓存失效
-                self._invalidate_config_cache()
-                return {"success": True}
-            else:
-                return {"success": False}
-        except Exception as e:
-            self.log.error(f"Failed to toggle OpenAPI config: {e}")
-            return {"success": False, "error": str(e)}
-
     def update_openapi_url(self, openapi_url: str) -> dict[str, Any]:
         """更新开放接口地址"""
         try:

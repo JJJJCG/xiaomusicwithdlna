@@ -1267,7 +1267,7 @@ class OnlineMusicService:
                     music_item["url"] = source_url
                 else:
                     # 返回插件源的代理接口
-                    music_item["url"] = self._get_plugin_proxy_url(item)
+                    music_item["url"] = self.get_plugin_proxy_url(item)
                 # 其他信息
                 music_item["name"] = item.get("title") + "-" + item.get("artist")
                 music_item["type"] = item.get("type", "music")
@@ -1279,8 +1279,13 @@ class OnlineMusicService:
 
         return converted_music_list
 
-    def _get_plugin_proxy_url(self, origin_data):
-        """获取插件源代理URL"""
+    def get_plugin_proxy_url(self, origin_data):
+        """获取插件源代理URL
+
+        公开方法：路由层（/api/device/pushUrl）与内部歌单转换都要用；
+        历史上路由层调用的是 xiaomusic.get_plugin_proxy_url，而 XiaoMusic
+        上并没有这个方法，导致接口必然抛 AttributeError（被 except 吞掉）。
+        """
         origin_data = json.dumps(origin_data)
         datab64 = base64.b64encode(origin_data.encode("utf-8")).decode("utf-8")
         plugin_source_url = f"self:///api/proxy/plugin-url?data={datab64}"

@@ -3,14 +3,14 @@
 
 import asyncio
 import hashlib
+import ipaddress
 import logging
 import os
+import socket
 import time
 from collections import OrderedDict
 from pathlib import Path
-from time import sleep
 from urllib.parse import (
-    parse_qs,
     urlparse,
 )
 
@@ -18,6 +18,63 @@ import aiohttp
 import edge_tts
 
 log = logging.getLogger(__package__)
+
+# 常见虚拟网卡网段：docker0 / tailscale，探测时应排除
+_VIRTUAL_NETS = ("172.17.0.0/16", "100.64.0.0/10")
+
+
+def detect_local_ip() -> str:
+    """自动检测本机局域网 IP。
+
+    优先取默认路由出口 IP (UDP connect 探测)，但仅当其是私网段且不是
+    常见虚拟网卡网段 (docker0/tailscale) 时才采用；否则遍历各私网段候选，
+    取第一个符合私网段的 IP。
+
+    解决多网卡 / Docker host 网络 + VPN(旁路由) 场景下自动探测到错误 IP
+    (如公网段 172.5.x.x 或 172.17.x docker0) 导致 DLNA/AirPlay 不可连接的问题。
+
+    注意：投送链路中 DLNA 广告、AirPlay mDNS 广播与 Apple-Response 校验
+    必须使用同一个 IP，否则会出现"设备可见但连接失败"，因此三处统一调用本函数。
+    """
+    # 1) 默认路由出口 IP
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        default_ip = s.getsockname()[0]
+        s.close()
+        if _is_lan_ip(default_ip):
+            return default_ip
+    except Exception:
+        pass
+
+    # 2) 遍历网卡候选：通过 UDP connect 到各私网段广播地址获取各网卡源 IP
+    #    (UDP connect 不实际发包，仅做路由选择，各系统均安全)
+    candidates: set[str] = set()
+    for target in ("10.255.255.255", "192.168.255.255", "172.31.255.255"):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect((target, 80))
+            candidates.add(s.getsockname()[0])
+            s.close()
+        except Exception:
+            pass
+    for ip in candidates:
+        if _is_lan_ip(ip):
+            return ip
+    return "127.0.0.1"
+
+
+def _is_lan_ip(ip: str) -> bool:
+    """是否为可直接用于局域网投送的地址（排除回环/链路本地/虚拟网卡）。"""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    if addr.is_loopback or addr.is_link_local:
+        return False
+    if not addr.is_private:
+        return False
+    return all(addr not in ipaddress.ip_network(net) for net in _VIRTUAL_NETS)
 
 
 async def downloadfile(url: str) -> str:
@@ -54,194 +111,6 @@ async def downloadfile(url: str) -> str:
             # 读取响应文本
             text = await response.text()
             return text
-
-
-async def check_bili_fav_list(url: str) -> dict:
-    """
-    检查 B 站收藏夹/合集
-
-    Args:
-        url: B站收藏夹或合集 URL
-
-    Returns:
-        {bvid/url: title} 字典
-
-    Raises:
-        ValueError: 如果不支持的类型
-        Exception: 如果请求失败
-    """
-    bvid_info = {}
-    parsed_url = urlparse(url)
-    path = parsed_url.path
-    # 提取查询参数
-    query_params = parse_qs(parsed_url.query)
-
-    if parsed_url.hostname == "space.bilibili.com":
-        if "/favlist" in path:
-            lid = query_params.get("fid", [None])[0]
-            type = query_params.get("ctype", [None])[0]
-            if type == "11":
-                type = "create"
-            elif type == "21":
-                type = "collect"
-            else:
-                raise ValueError("当前只支持合集和收藏夹")
-        elif "/lists/" in path:
-            parts = path.split("/")
-            if len(parts) >= 4 and "?" in url:
-                lid = parts[3]  # 提取 lid
-                type = query_params.get("type", [None])[0]
-
-        # https://api.bilibili.com/x/polymer/web-space/seasons_archives_list?season_id={lid}&page_size=30&page_num=1
-        page_size = 100
-        page_num = 1
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Referer": url,
-            "Origin": "https://space.bilibili.com",
-        }
-        async with aiohttp.ClientSession(headers=headers) as session:
-            if type == "season" or type == "collect":
-                while True:
-                    list_url = f"https://api.bilibili.com/x/polymer/web-space/seasons_archives_list?season_id={lid}&page_size={page_size}&page_num={page_num}"
-                    async with session.get(list_url) as response:
-                        if response.status != 200:
-                            raise Exception(f"Failed to fetch data from {list_url}")
-                        data = await response.json()
-                        archives = data.get("data", {}).get("archives", [])
-                        if not archives:
-                            break
-                        for archive in archives:
-                            bvid = archive.get("bvid", None)
-                            title = archive.get("title", None)
-                            bvid_info[bvid] = title
-
-                        if len(archives) < page_size:
-                            break
-                        page_num += 1
-                        sleep(1)
-            elif type == "create":
-                while True:
-                    list_url = f"https://api.bilibili.com/x/v3/fav/resource/list?media_id={lid}&pn={page_num}&ps={page_size}&order=mtime"
-                    async with session.get(list_url) as response:
-                        if response.status != 200:
-                            raise Exception(f"Failed to fetch data from {list_url}")
-                        data = await response.json()
-                        medias = data.get("data", {}).get("medias", [])
-                        if not medias:
-                            break
-                        for media in medias:
-                            bvid = media.get("bvid", None)
-                            title = media.get("title", None)
-                            bvurl = f"https://www.bilibili.com/video/{bvid}"
-                            bvid_info[bvurl] = title
-
-                        if len(medias) < page_size:
-                            break
-                        page_num += 1
-            else:
-                raise ValueError("当前只支持合集和收藏夹")
-    return bvid_info
-
-
-async def download_playlist(config, url: str, dirname: str):
-    """
-    下载播放列表
-
-    Args:
-        config: 配置对象
-        url: 播放列表 URL
-        dirname: 保存目录名
-
-    Returns:
-        下载进程对象
-    """
-    title = f"{dirname}/%(title)s.%(ext)s"
-    sbp_args = (
-        "yt-dlp",
-        "--yes-playlist",
-        "-x",
-        "--audio-format",
-        "mp3",
-        "--audio-quality",
-        "0",
-        "--paths",
-        config.download_path,
-        "-o",
-        title,
-        "--ffmpeg-location",
-        f"{config.ffmpeg_location}",
-    )
-
-    if config.proxy:
-        sbp_args += ("--proxy", f"{config.proxy}")
-
-    if config.enable_yt_dlp_cookies:
-        sbp_args += ("--cookies", f"{config.yt_dlp_cookies_path}")
-
-    if config.loudnorm:
-        sbp_args += ("--postprocessor-args", f"-af {config.loudnorm}")
-
-    sbp_args += (url,)
-
-    cmd = " ".join(sbp_args)
-    log.info(f"download_playlist: {cmd}")
-    download_proc = await asyncio.create_subprocess_exec(*sbp_args)
-    return download_proc
-
-
-async def download_one_music(
-    config, url: str, name: str = "", download_root: str | None = None
-):
-    """
-    下载单首歌曲
-
-    Args:
-        config: 配置对象
-        url: 歌曲 URL
-        name: 文件名（可选）
-        download_root: 下载目录（可选），默认为 config.download_path
-
-    Returns:
-        下载进程对象
-    """
-    title = "%(title)s.%(ext)s"
-    if name:
-        title = f"{name}.%(ext)s"
-    download_root = download_root or config.download_path
-
-    sbp_args = (
-        "yt-dlp",
-        "--no-playlist",
-        "-x",
-        "--audio-format",
-        "mp3",
-        "--audio-quality",
-        "0",
-        "--paths",
-        download_root,
-        "-o",
-        title,
-        "--ffmpeg-location",
-        f"{config.ffmpeg_location}",
-    )
-
-    if config.proxy:
-        sbp_args += ("--proxy", f"{config.proxy}")
-
-    if config.enable_yt_dlp_cookies:
-        sbp_args += ("--cookies", f"{config.yt_dlp_cookies_path}")
-
-    if config.loudnorm:
-        sbp_args += ("--postprocessor-args", f"-af {config.loudnorm}")
-
-    sbp_args += (url,)
-
-    cmd = " ".join(sbp_args)
-    log.info(f"download_one_music: {cmd}")
-    download_proc = await asyncio.create_subprocess_exec(*sbp_args)
-    return download_proc
 
 
 async def fetch_json_get(url: str, headers: dict, config) -> dict:

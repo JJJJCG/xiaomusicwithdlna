@@ -43,9 +43,11 @@ from xiaomusic.api.dependencies import (
 )
 from xiaomusic.qrcode_login import MiJiaAPI
 from xiaomusic.utils.system_utils import (
+    SENSITIVE_PLACEHOLDER,
     deepcopy_data_no_sensitive_info,
     get_latest_version,
     restart_xiaomusic,
+    restore_sensitive_placeholders,
     update_version,
 )
 
@@ -113,20 +115,23 @@ async def get_logint_status(lp: str):
         log.exception("get_logint_status failed: %s", e)
 
 
-@router.get("/getversion")
+@router.get("/getversion", include_in_schema=False)
+@router.get("/api/system/version")
 def getversion():
     """获取版本"""
     log.debug("getversion %s", __version__)
     return {"version": __version__}
 
 
-@router.get("/getsetting")
+@router.get("/getsetting", include_in_schema=False)
+@router.get("/api/system/setting")
 async def getsetting(need_device_list: bool = False):
     """获取设置"""
     config_data = xiaomusic.getconfig()
     data = asdict(config_data)
-    data["password"] = "******"
-    data["httpauth_password"] = "******"
+    data["password"] = SENSITIVE_PLACEHOLDER
+    data["httpauth_password"] = SENSITIVE_PLACEHOLDER
+    data["ha_token"] = SENSITIVE_PLACEHOLDER
     if need_device_list:
         device_list = await xiaomusic.getalldevices()
         log.info(f"getsetting device_list: {device_list}")
@@ -134,22 +139,16 @@ async def getsetting(need_device_list: bool = False):
     return data
 
 
-@router.post("/savesetting")
+@router.post("/savesetting", include_in_schema=False)
+@router.post("/api/system/setting")
 async def savesetting(request: Request):
-    """保存设置"""
+    """保存设置（全量）"""
     try:
         data_json = await request.body()
         data = json.loads(data_json.decode("utf-8"))
+        data = restore_sensitive_placeholders(data, xiaomusic.getconfig())
         debug_data = deepcopy_data_no_sensitive_info(data)
         log.info(f"saveconfig: {debug_data}")
-        config_obj = xiaomusic.getconfig()
-        if data.get("password") == "******" or data.get("password", "") == "":
-            data["password"] = config_obj.password
-        if (
-            data.get("httpauth_password") == "******"
-            or data.get("httpauth_password", "") == ""
-        ):
-            data["httpauth_password"] = config_obj.httpauth_password
         await xiaomusic.saveconfig(data)
 
         # 重置 HTTP 服务器配置
@@ -169,20 +168,12 @@ async def modifiysetting(request: Request):
     try:
         data_json = await request.body()
         data = json.loads(data_json.decode("utf-8"))
-        debug_data = deepcopy_data_no_sensitive_info(data)
-        log.info(f"modifiysetting: {debug_data}")
 
         config_obj = xiaomusic.getconfig()
-
-        # 处理密码字段，如果是 ****** 或空字符串则保持原值
-        if "password" in data and (
-            data["password"] == "******" or data["password"] == ""
-        ):
-            data["password"] = config_obj.password
-        if "httpauth_password" in data and (
-            data["httpauth_password"] == "******" or data["httpauth_password"] == ""
-        ):
-            data["httpauth_password"] = config_obj.httpauth_password
+        # 与 savesetting 共用同一份占位符还原逻辑
+        data = restore_sensitive_placeholders(data, config_obj)
+        debug_data = deepcopy_data_no_sensitive_info(data)
+        log.info(f"modifiysetting: {debug_data}")
 
         # 检查是否有HTTP服务器相关配置被修改
         has_http_config_changed = any(
@@ -211,7 +202,8 @@ async def modifiysetting(request: Request):
         raise HTTPException(status_code=500, detail=str(err)) from err
 
 
-@router.get("/downloadlog")
+@router.get("/downloadlog", include_in_schema=False)
+@router.get("/api/system/log")
 def downloadlog():
     """下载日志"""
     file_path = config.log_file
@@ -280,7 +272,8 @@ async def simulate_token_expire():
     }
 
 
-@router.get("/latestversion")
+@router.get("/latestversion", include_in_schema=False)
+@router.get("/api/system/version/latest")
 async def latest_version():
     """获取最新版本"""
     version = await get_latest_version("xiaomusic")
@@ -290,7 +283,8 @@ async def latest_version():
         return {"ret": "Fetch version failed"}
 
 
-@router.post("/updateversion")
+@router.post("/updateversion", include_in_schema=False)
+@router.post("/api/system/version/update")
 async def updateversion(version: str = "", lite: bool = True):
     """更新版本"""
     import asyncio

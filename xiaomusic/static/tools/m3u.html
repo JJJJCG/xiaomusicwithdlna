@@ -5,7 +5,45 @@
     <link rel="icon" href="/favicon.ico">
     <meta name="viewport" content="width=device-width">
     <title>M3U to JSON Converter</title>
-    <link rel="stylesheet" type="text/css" href="./main.css?version=1736211336">
+    <style>
+      body {
+        margin: 0 auto;
+        padding: 24px 16px;
+        max-width: 720px;
+        font: 15px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: #191c22;
+        background: #f5f6f8;
+      }
+      h1 { font-size: 20px; }
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+        padding: 8px;
+        border: 1px solid #dfe3ea;
+        border-radius: 8px;
+        background: #fff;
+        color: inherit;
+      }
+      button {
+        font: inherit;
+        margin: 10px 0;
+        padding: 7px 16px;
+        border: 1px solid #dfe3ea;
+        border-radius: 8px;
+        background: #fff;
+        cursor: pointer;
+      }
+      button:hover { background: #eceef2; }
+      footer { margin-top: 24px; color: #626976; font-size: 13px; }
+      footer a { color: #e8543f; }
+      @media (prefers-color-scheme: dark) {
+        body { color: #e8eaf0; background: #12131a; }
+        textarea { background: #1b1d26; border-color: #2a2e3a; }
+        button { background: #1b1d26; border-color: #2a2e3a; color: inherit; }
+        button:hover { background: #0d0e14; }
+      }
+    </style>
 
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-Z09NC1K7ZW"></script>

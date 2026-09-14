@@ -22,14 +22,16 @@ from xiaomusic.api.models import (
 router = APIRouter(dependencies=[Depends(verification)])
 
 
-@router.get("/device_list")
+@router.get("/device_list", include_in_schema=False)
+@router.get("/api/device/list")
 async def device_list():
     """获取设备列表"""
     devices = await xiaomusic.getalldevices()
     return {"devices": devices}
 
 
-@router.get("/getvolume")
+@router.get("/getvolume", include_in_schema=False)
+@router.get("/api/device/volume")
 async def getvolume(did: str = ""):
     """获取音量"""
     if not xiaomusic.did_exist(did):
@@ -39,7 +41,8 @@ async def getvolume(did: str = ""):
     return {"volume": volume}
 
 
-@router.get("/getplayerstatus")
+@router.get("/getplayerstatus", include_in_schema=False)
+@router.get("/api/device/status")
 async def getplayerstatus(did: str = ""):
     """获取完整播放状态
 
@@ -56,7 +59,8 @@ async def getplayerstatus(did: str = ""):
     return await xiaomusic.get_player_status(did=did)
 
 
-@router.post("/setvolume")
+@router.post("/setvolume", include_in_schema=False)
+@router.post("/api/device/volume")
 async def setvolume(data: DidVolume):
     """设置音量"""
     did = data.did
@@ -69,7 +73,8 @@ async def setvolume(data: DidVolume):
     return {"ret": "OK", "volume": volume}
 
 
-@router.post("/cmd")
+@router.post("/cmd", include_in_schema=False)
+@router.post("/api/device/cmd")
 async def do_cmd(data: DidCmd):
     """执行命令"""
     did = data.did
@@ -89,7 +94,8 @@ async def do_cmd(data: DidCmd):
     return {"ret": "Unknow cmd"}
 
 
-@router.get("/cmdstatus")
+@router.get("/cmdstatus", include_in_schema=False)
+@router.get("/api/device/cmd/status")
 async def cmd_status():
     """命令状态"""
     finish = await xiaomusic.is_task_finish()
@@ -98,7 +104,8 @@ async def cmd_status():
     return {"ret": "OK", "status": "running"}
 
 
-@router.get("/playurl")
+@router.get("/playurl", include_in_schema=False)
+@router.get("/api/device/play/url")
 async def playurl(did: str, url: str):
     """播放 URL"""
     if not xiaomusic.did_exist(did):
@@ -108,7 +115,8 @@ async def playurl(did: str, url: str):
     return await xiaomusic.play_url(did=did, arg1=decoded_url)
 
 
-@router.get("/playtts")
+@router.get("/playtts", include_in_schema=False)
+@router.get("/api/device/play/tts")
 async def playtts(did: str, text: str):
     """播放 TTS"""
     if not xiaomusic.did_exist(did):
@@ -119,7 +127,8 @@ async def playtts(did: str, text: str):
     return {"ret": "OK"}
 
 
-@router.post("/device/stop")
+@router.post("/device/stop", include_in_schema=False)
+@router.post("/api/device/stop")
 async def stop(data: Did):
     """关机"""
     did = data.did

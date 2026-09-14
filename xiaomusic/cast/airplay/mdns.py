@@ -15,6 +15,8 @@ import time
 from zeroconf import ServiceInfo, Zeroconf, IPVersion
 from zeroconf._exceptions import ServiceNameAlreadyRegistered, NonUniqueNameException
 
+from xiaomusic.utils.network_utils import detect_local_ip
+
 log = logging.getLogger("xiaomusic.cast")
 
 
@@ -215,15 +217,13 @@ class AirPlayMDNS:
             self._thread.join(timeout=2)
 
     def _get_ip(self) -> str:
-        """获取本机 IP 地址"""
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception:
-            return "127.0.0.1"
+        """获取本机 IP 地址。
+
+        与 DLNA 广告、AirPlay server 的 Apple-Response 校验共用同一个探测实现，
+        否则两边可能挑到不同网卡（如 docker0 / tailscale），
+        出现"设备可见但连接失败"。
+        """
+        return detect_local_ip()
 
     def update_port(self, port: int):
         """更新 RTSP 端口（动态分配后调用）"""

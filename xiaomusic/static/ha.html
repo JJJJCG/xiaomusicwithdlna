@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xiaomusic · Home Assistant 接入</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#fff; --line:#e3e6ea; --text:#1f2328; --dim:#6b7280;
+    --accent:#2563eb; --ok:#15803d; --err:#b91c1c; --warn:#b45309;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+  header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);
+         padding:14px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{margin:0;font-size:17px;font-weight:600}
+  header .sp{flex:1}
+  main{max-width:1080px;margin:0 auto;padding:18px 20px 60px}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  section h2{margin:0 0 12px;font-size:15px;font-weight:600}
+  label{display:block;font-size:12px;color:var(--dim);margin-bottom:4px}
+  input,select,textarea,button{font:inherit;color:inherit}
+  input[type=text],input[type=password],select,textarea{
+    width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:#fff}
+  input:focus,select:focus,textarea:focus{outline:2px solid #bfdbfe;border-color:var(--accent)}
+  textarea{resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+  button{padding:7px 13px;border:1px solid var(--line);background:#fff;border-radius:7px;cursor:pointer}
+  button:hover{border-color:#c7ccd4}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover{filter:brightness(.95)}
+  button.danger{color:var(--err);border-color:#f3c6c6}
+  button.mini{padding:3px 8px;font-size:12px}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .row>*{flex:1;min-width:180px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1.4fr;gap:10px}
+  .hint{color:var(--dim);font-size:12px;margin-top:6px}
+  .msg{margin-top:10px;font-size:13px;min-height:20px}
+  .msg.ok{color:var(--ok)} .msg.err{color:var(--err)} .msg.warn{color:var(--warn)}
+  .state{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--dim)}
+  .state b{color:var(--text);font-weight:600}
+  .rule{border:1px solid var(--line);border-radius:9px;padding:12px;margin-bottom:12px;background:#fcfcfd}
+  .rule .head{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+  .rule .head .idx{font-size:12px;color:var(--dim);min-width:52px}
+  .rule .head .pat{flex:1}
+  .params{margin-top:10px}
+  .params table{width:100%;border-collapse:collapse}
+  .params td{padding:3px 4px;vertical-align:middle}
+  .params td.k{width:36%} .params td.v{width:44%} .params td.a{width:20%;text-align:right}
+  .switch{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim)}
+  .pill{display:inline-block;padding:1px 7px;border-radius:99px;background:#eef2ff;color:#3730a3;font-size:11px}
+  pre{background:#0f172a;color:#e2e8f0;padding:10px;border-radius:8px;overflow:auto;font-size:12px;max-height:240px}
+  dialog{border:none;border-radius:10px;padding:0;max-width:760px;width:92%}
+  dialog::backdrop{background:rgba(15,23,42,.45)}
+  dialog .dlg-h{padding:12px 16px;border-bottom:1px solid var(--line);font-weight:600}
+  dialog .dlg-b{padding:14px 16px}
+  dialog .dlg-f{padding:12px 16px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+  code{background:#f1f3f6;padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Home Assistant 接入</h1>
+  <span class="pill" id="pill-state">加载中…</span>
+  <span class="sp"></span>
+  <button id="btn-reload">重新载入</button>
+  <button id="btn-entities">拉取实体/服务</button>
+  <button class="primary" id="btn-save">保存全部规则</button>
+</header>
+
+<main>
+  <section>
+    <h2>1. 连接 Home Assistant</h2>
+    <div class="row">
+      <div style="flex:0 0 150px">
+        <label>启用 HA 语音控制</label>
+        <select id="enable_ha">
+          <option value="false">关闭</option>
+          <option value="true">开启</option>
+        </select>
+      </div>
+      <div style="flex:2">
+        <label>HA 地址</label>
+        <input type="text" id="ha_url" placeholder="http://homeassistant.local:8123">
+      </div>
+      <div style="flex:2">
+        <label>长期访问令牌</label>
+        <input type="password" id="ha_token" placeholder="在 HA 个人资料页创建 Long-Lived Access Token">
+      </div>
+      <div style="flex:0 0 150px">
+        <label>执行后语音播报</label>
+        <select id="ha_tts_reply">
+          <option value="true">播报 reply</option>
+          <option value="false">不播报</option>
+        </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div style="flex:0 0 auto"><button class="primary" id="btn-save-setting">保存连接配置</button></div>
+      <div style="flex:0 0 auto"><button id="btn-test-ha">测试连接</button></div>
+      <div style="flex:2"><div class="msg" id="setting-msg"></div></div>
+    </div>
+    <div class="hint">
+      令牌只在内存与 <code>conf/setting.json</code> 中保存，不会回显（显示为 <code>******</code>）。
+      需要重启或保存设置后 <code>enable_ha</code> 才生效。
+    </div>
+  </section>
+
+  <section>
+    <h2>2. 运行状态</h2>
+    <div class="state" id="status"></div>
+  </section>
+
+  <section>
+    <h2>3. 语音规则 <span class="hint" style="display:inline">（说一句话 → 调 HA 服务）</span></h2>
+    <div class="hint" style="margin:0 0 12px">
+      <b>pattern</b> 是正则，<code>{num}</code> 表示数字（会当参数用 <code>{0}</code> 回填）；
+      <code>entity_id</code> 可点"拉取实体/服务"后从下拉里选。<br>
+      <b>规则按顺序匹配，命中第一条就停</b>——所以"每天7点开客厅灯"这种具体规则要放在"开客厅灯"这种通用规则<b>前面</b>，用 ↑↓ 调序，改完点右上角"保存全部规则"。<br>
+      命中 HA 规则后不会再走音乐口令的模糊匹配，但只喊完全匹配的音乐口令（比如就两个字"关闭"）仍然优先当停止播放。
+    </div>
+    <div id="rules"></div>
+    <button id="btn-add">+ 新增规则</button>
+    <span class="msg" id="rules-msg" style="display:inline-block;margin-left:10px"></span>
+  </section>
+
+  <section>
+    <h2>4. 试说一句</h2>
+    <div class="row">
+      <div style="flex:3"><input type="text" id="test-text" placeholder="例如：把客厅灯调到 60%"></div>
+      <div style="flex:0 0 auto"><button id="btn-test-rule">解析</button></div>
+    </div>
+    <pre id="test-out" style="display:none"></pre>
+  </section>
+
+  <section>
+    <h2>5. 定时任务 <span class="hint" style="display:inline">（由"每天 X 点"类规则在 HA 里创建）</span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <div style="flex:0 0 auto"><button id="btn-load-auto">刷新列表</button></div>
+      <div style="flex:2"><div class="msg" id="auto-msg"></div></div>
+    </div>
+    <div id="automations" class="hint">点"刷新列表"查看。</div>
+  </section>
+
+  <section>
+    <h2>6. 备份 / 迁移</h2>
+    <div class="row">
+      <div style="flex:0 0 auto"><button id="btn-export">导出到文本框</button></div>
+      <div style="flex:0 0 auto"><button id="btn-import">从文本框导入</button></div>
+    </div>
+    <textarea id="io" rows="8" style="margin-top:10px" placeholder='点击"导出到文本框"把当前规则变成 JSON，或粘贴别人的规则后点导入'></textarea>
+    <div class="msg" id="io-msg"></div>
+  </section>
+</main>
+
+<datalist id="dl-entities"></datalist>
+<datalist id="dl-domains"></datalist>
+<datalist id="dl-services"></datalist>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const api = {
+  async get(url){ return request(url, {method:'GET'}); },
+  async post(url, body){ return request(url, {method:'POST', body: JSON.stringify(body||{})}); },
+  async put(url, body){ return request(url, {method:'PUT', body: JSON.stringify(body||{})}); },
+  async del(url){ return request(url, {method:'DELETE'}); },
+};
+async function request(url, opt){
+  const resp = await fetch(url, Object.assign({headers:{'Content-Type':'application/json'}}, opt));
+  const text = await resp.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch(e){ data = {detail: text}; }
+  if(!resp.ok) throw new Error((data && (data.detail || data.message)) || ('HTTP ' + resp.status));
+  return data;
+}
+function say(el, text, cls){ const n = $(el); n.textContent = text || ''; n.className = 'msg ' + (cls||''); }
+
+/* ---------------- 规则模型 ---------------- */
+let rules = [];
+const LOCAL_KEYS = ['reply','delay_minutes','type','schedule_time','schedule_days'];
+const BASE_KEYS  = ['domain','service','entity_id'];
+
+function newRule(){
+  return {pattern:'', action:{domain:'light', service:'turn_on', entity_id:'', reply:'好的'}};
+}
+function paramKeys(rule){
+  return Object.keys(rule.action).filter(k => !BASE_KEYS.includes(k) && !LOCAL_KEYS.includes(k));
+}
+function actionMode(rule){
+  const a = rule.action;
+  if(String(a.type||'').toLowerCase() === 'schedule') return 'schedule';
+  if(a.delay_minutes !== undefined && a.delay_minutes !== '') return 'delay';
+  return 'now';
+}
+function setMode(rule, mode){
+  const a = rule.action;
+  delete a.type; delete a.schedule_time; delete a.schedule_days; delete a.delay_minutes;
+  if(mode === 'schedule'){ a.type = 'schedule'; a.schedule_time = '07:30'; a.schedule_days = '每天'; }
+  if(mode === 'delay'){ a.delay_minutes = '{0}'; }
+}
+
+/* ---------------- 渲染 ---------------- */
+function renderRules(){
+  const host = $('rules');
+  host.innerHTML = '';
+  if(!rules.length){
+    host.innerHTML = '<div class="hint">还没有规则，点下面的"新增规则"。</div>';
+    return;
+  }
+  rules.forEach((rule, i) => host.appendChild(renderRule(rule, i)));
+}
+
+function renderRule(rule, i){
+  const box = document.createElement('div');
+  box.className = 'rule';
+
+  const head = document.createElement('div');
+  head.className = 'head';
+  const idx = document.createElement('span'); idx.className = 'idx'; idx.textContent = '第 ' + (i+1) + ' 条';
+  const pat = document.createElement('input');
+  pat.type = 'text'; pat.className = 'pat'; pat.placeholder = '你说的话（正则），例如 (打开|开)(客厅灯) 或 把客厅灯调到{num}[%％]';
+  pat.value = rule.action === undefined ? '' : (rule.pattern || '');
+  pat.addEventListener('input', () => { rule.pattern = pat.value; });
+  head.appendChild(idx); head.appendChild(pat);
+  head.appendChild(btn('↑', () => { if(i>0){ const t=rules[i-1]; rules[i-1]=rules[i]; rules[i]=t; renderRules(); } }));
+  head.appendChild(btn('↓', () => { if(i<rules.length-1){ const t=rules[i+1]; rules[i+1]=rules[i]; rules[i]=t; renderRules(); } }));
+  head.appendChild(btn('复制', () => { rules.splice(i+1,0,JSON.parse(JSON.stringify(rule))); renderRules(); }));
+  head.appendChild(btn('删除', () => { rules.splice(i,1); renderRules(); }, 'danger mini'));
+  box.appendChild(head);
+
+  // domain / service / entity_id
+  const g = document.createElement('div');
+  g.className = 'grid3';
+  g.appendChild(field('服务域 domain', inputFor(rule, 'domain', 'light', 'dl-domains')));
+  g.appendChild(field('操作 service', inputFor(rule, 'service', 'turn_on', 'dl-services')));
+  g.appendChild(field('实体 entity_id', inputFor(rule, 'entity_id', 'light.living_room', 'dl-entities')));
+  box.appendChild(g);
+
+  // 回复 + 定时模式
+  const g2 = document.createElement('div');
+  g2.className = 'row';
+  g2.style.marginTop = '10px';
+  const replyWrap = document.createElement('div');
+  replyWrap.appendChild(field('语音回复 reply（支持 {0} 回填）',
+    inputFor(rule, 'reply', '好的，已执行')));
+  g2.appendChild(replyWrap);
+
+  const modeWrap = document.createElement('div');
+  modeWrap.style.flex = '0 0 170px';
+  const modeSel = document.createElement('select');
+  [['now','立即执行'],['delay','N 分钟后执行'],['schedule','每天/工作日定时']].forEach(([v,t]) => {
+    const o = document.createElement('option'); o.value = v; o.textContent = t; modeSel.appendChild(o);
+  });
+  modeSel.value = actionMode(rule);
+  modeSel.addEventListener('change', () => { setMode(rule, modeSel.value); renderRules(); });
+  modeWrap.appendChild(field('执行时机', modeSel));
+  g2.appendChild(modeWrap);
+
+  if(actionMode(rule) === 'delay'){
+    const w = document.createElement('div');
+    w.style.flex = '0 0 160px';
+    w.appendChild(field('延迟（分钟，可用 {0}）', inputFor(rule, 'delay_minutes', '{0}')));
+    g2.appendChild(w);
+  }
+  if(actionMode(rule) === 'schedule'){
+    const w1 = document.createElement('div'); w1.style.flex = '0 0 130px';
+    w1.appendChild(field('时间 HH:MM', inputFor(rule, 'schedule_time', '07:30')));
+    const w2 = document.createElement('div'); w2.style.flex = '0 0 150px';
+    w2.appendChild(field('星期', inputFor(rule, 'schedule_days', '每天')));
+    g2.appendChild(w1); g2.appendChild(w2);
+  }
+  box.appendChild(g2);
+
+  // 额外参数键值对
+  const params = document.createElement('div');
+  params.className = 'params';
+  const keys = paramKeys(rule);
+  if(keys.length){
+    const tb = document.createElement('table');
+    keys.forEach(k => {
+      const tr = document.createElement('tr');
+      const tdK = document.createElement('td'); tdK.className = 'k';
+      const tdV = document.createElement('td'); tdV.className = 'v';
+      const tdA = document.createElement('td'); tdA.className = 'a';
+      const ik = document.createElement('input'); ik.type='text'; ik.value = k;
+      ik.addEventListener('change', () => { const v = rule.action[k]; delete rule.action[k]; rule.action[ik.value.trim()||k] = v; renderRules(); });
+      const iv = document.createElement('input'); iv.type='text'; iv.value = rule.action[k];
+      iv.addEventListener('input', () => { rule.action[k] = iv.value; });
+      tdK.appendChild(ik); tdV.appendChild(iv);
+      tdA.appendChild(btn('删除', () => { delete rule.action[k]; renderRules(); }, 'danger mini'));
+      tr.appendChild(tdK); tr.appendChild(tdV); tr.appendChild(tdA);
+      tb.appendChild(tr);
+    });
+    params.appendChild(tb);
+  }
+  const addP = btn('+ 附加参数（如 brightness_pct = {0}）', () => {
+    let name = 'temperature', n = 1;
+    while(rule.action[name] !== undefined){ name = 'param' + (++n); }
+    rule.action[name] = '{0}';
+    renderRules();
+  }, 'mini');
+  params.appendChild(addP);
+  box.appendChild(params);
+  return box;
+}
+
+function field(labelText, el){
+  const w = document.createElement('div');
+  const l = document.createElement('label'); l.textContent = labelText;
+  w.appendChild(l); w.appendChild(el);
+  return w;
+}
+function btn(text, fn, cls){
+  const b = document.createElement('button');
+  b.textContent = text; b.className = 'mini ' + (cls||'');
+  b.addEventListener('click', fn);
+  return b;
+}
+function inputFor(rule, key, placeholder, listId){
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.value = rule.action[key] === undefined ? '' : rule.action[key];
+  inp.placeholder = placeholder || '';
+  if(listId) inp.setAttribute('list', listId);
+  inp.addEventListener('input', () => {
+    if(inp.value === '') delete rule.action[key]; else rule.action[key] = inp.value;
+  });
+  return inp;
+}
+
+/* ---------------- 载入 ---------------- */
+async function loadStatus(){
+  try{
+    const st = await api.get('/api/ha/status');
+    $('pill-state').textContent = st.enabled ? (st.configured ? '已启用' : '已启用·缺令牌') : '未启用';
+    $('status').innerHTML = [
+      ['规则', st.rules_count + (st.invalid_rules ? (' 条（跳过 ' + st.invalid_rules + ' 条非法）') : ' 条')],
+      ['命中次数', String(st.command_count)],
+      ['最近指令', st.last_command ? (st.last_command + ' @ ' + st.last_command_time) : '—'],
+      ['最近回复', st.last_reply || '—'],
+      ['待执行延迟', String(st.pending_delays)],
+      ['配置', st.ha_url ? st.ha_url : '未填 HA 地址'],
+      ['令牌', st.token_configured ? '已配置' : '未配置'],
+      ['错误', st.last_error || '—'],
+    ].map(([k,v]) => '<span>' + k + '：<b>' + esc(v) + '</b></span>').join('');
+    $('enable_ha').value = st.enabled ? 'true' : 'false';
+    $('ha_tts_reply').value = st.tts_reply ? 'true' : 'false';
+    if(st.ha_url && !$('ha_url').value) $('ha_url').value = st.ha_url;
+    if(!$('ha_token').value) $('ha_token').value = st.token_configured ? '******' : '';
+  }catch(e){
+    $('pill-state').textContent = '状态获取失败';
+    $('status').innerHTML = '<span style="color:var(--err)">' + esc(e.message) + '</span>';
+  }
+}
+async function loadRules(){
+  try{
+    const data = await api.get('/api/ha/rules');
+    rules = Array.isArray(data.rules) ? data.rules : [];
+    renderRules();
+    say('rules-msg', '已载入 ' + rules.length + ' 条规则（' + data.path + '）', '');
+  }catch(e){ say('rules-msg', '载入失败：' + e.message, 'err'); }
+}
+async function loadEntities(){
+  say('setting-msg', '正在拉取 HA 实体与服务…', '');
+  try{
+    const ent = await api.get('/api/ha/entities');
+    const dl = $('dl-entities'); dl.innerHTML = '';
+    (ent.entities||[]).forEach(e => {
+      const o = document.createElement('option');
+      o.value = e.entity_id; o.label = (e.name || '') + ' · ' + (e.state || '');
+      dl.appendChild(o);
+    });
+    const svc = await api.get('/api/ha/services');
+    const domains = Object.keys(svc.services||{});
+    const ddl = $('dl-domains'); ddl.innerHTML = '';
+    domains.forEach(d => { const o=document.createElement('option'); o.value=d; ddl.appendChild(o); });
+    const sdl = $('dl-services'); sdl.innerHTML = '';
+    const all = new Set();
+    domains.forEach(d => (svc.services[d]||[]).forEach(s => all.add(s)));
+    [...all].sort().forEach(s => { const o=document.createElement('option'); o.value=s; sdl.appendChild(o); });
+    say('setting-msg', '已拉取实体 ' + (ent.count||0) + ' 个、服务域 ' + domains.length + ' 个', 'ok');
+  }catch(e){ say('setting-msg', '拉取失败：' + e.message, 'err'); }
+}
+async function loadAutomations(){
+  try{
+    const data = await api.get('/api/ha/automations');
+    const host = $('automations'); host.innerHTML = '';
+    if(!data.automations || !data.automations.length){ host.textContent = '暂无本程序创建的定时任务。'; return; }
+    const tb = document.createElement('table');
+    tb.style.width = '100%';
+    data.automations.forEach(a => {
+      const tr = document.createElement('tr');
+      const td1 = document.createElement('td'); td1.textContent = a.entity_id;
+      const td2 = document.createElement('td'); td2.textContent = a.name || '';
+      const td3 = document.createElement('td'); td3.textContent = a.state || '';
+      const td4 = document.createElement('td'); td4.style.textAlign = 'right';
+      td4.appendChild(btn('删除', async () => {
+        try { await api.del('/api/ha/automations/' + a.entity_id.replace(/^automation\./,'')); say('auto-msg','已删除','ok'); loadAutomations(); }
+        catch(e){ say('auto-msg', '删除失败：' + e.message, 'err'); }
+      }, 'danger mini'));
+      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
+      tb.appendChild(tr);
+    });
+    host.innerHTML = ''; host.appendChild(tb);
+  }catch(e){ say('auto-msg', '获取失败：' + e.message, 'err'); }
+}
+
+function esc(s){
+  return String(s === undefined || s === null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ---------------- 事件 ---------------- */
+$('btn-reload').addEventListener('click', () => { loadStatus(); loadRules(); });
+$('btn-add').addEventListener('click', () => { rules.push(newRule()); renderRules(); });
+$('btn-entities').addEventListener('click', loadEntities);
+$('btn-load-auto').addEventListener('click', loadAutomations);
+
+$('btn-save').addEventListener('click', async () => {
+  say('rules-msg', '保存中…', '');
+  try{
+    const res = await api.put('/api/ha/rules', {rules});
+    say('rules-msg', '已保存 ' + res.count + ' 条规则', 'ok');
+    loadStatus();
+  }catch(e){ say('rules-msg', '保存失败：' + e.message, 'err'); }
+});
+
+$('btn-save-setting').addEventListener('click', async () => {
+  say('setting-msg', '保存中…', '');
+  const payload = {
+    enable_ha: $('enable_ha').value === 'true',
+    ha_url: $('ha_url').value.trim(),
+    ha_tts_reply: $('ha_tts_reply').value === 'true',
+  };
+  const token = $('ha_token').value.trim();
+  if(token && token !== '******') payload.ha_token = token;
+  try{
+    const res = await api.post('/api/ha/setting', payload);
+    say('setting-msg', '已保存：' + (res.updated||[]).join(', ') + '（改 enable_ha 后建议重启生效）', 'ok');
+    loadStatus();
+  }catch(e){ say('setting-msg', '保存失败：' + e.message, 'err'); }
+});
+
+$('btn-test-ha').addEventListener('click', async () => {
+  say('setting-msg', '正在测试…', '');
+  try{
+    const res = await api.post('/api/ha/test');
+    say('setting-msg', res.message, res.success ? 'ok' : 'err');
+  }catch(e){ say('setting-msg', '测试失败：' + e.message, 'err'); }
+});
+
+$('btn-test-rule').addEventListener('click', async () => {
+  const text = $('test-text').value.trim();
+  const out = $('test-out');
+  if(!text){ say('rules-msg', '先输入一句话', 'warn'); return; }
+  try{
+    const res = await api.post('/api/ha/rules/test', {text});
+    out.style.display = 'block';
+    out.textContent = res.matched
+      ? '命中规则：' + res.result.pattern + '\n将调用：' + res.result.action.domain + '.' + res.result.action.service
+        + '\n参数：' + JSON.stringify(res.result.action, null, 2)
+      : '没有规则命中这句话（会按普通音乐指令继续处理）';
+  }catch(e){ out.style.display='block'; out.textContent = '解析失败：' + e.message; }
+});
+
+$('btn-export').addEventListener('click', () => {
+  $('io').value = JSON.stringify({rules}, null, 2);
+  say('io-msg', '已导出到下方文本框', 'ok');
+});
+$('btn-import').addEventListener('click', () => {
+  try{
+    const data = JSON.parse($('io').value);
+    const list = Array.isArray(data) ? data : data.rules;
+    if(!Array.isArray(list)) throw new Error('需要 {"rules": [...]} 或数组');
+    rules = list; renderRules();
+    say('io-msg', '已导入 ' + rules.length + ' 条，记得点"保存全部规则"', 'ok');
+  }catch(e){ say('io-msg', '导入失败：' + e.message, 'err'); }
+});
+
+loadStatus();
+loadRules();
+</script>
+</body>
+</html>

@@ -14,6 +14,9 @@ from xiaomusic.config import KEY_WORD_ARG_BEFORE_DICT
 if TYPE_CHECKING:
     pass
 
+# HA 指令用的伪命令名：xiaomusic 上真正执行它的是 XiaoMusic.ha_control
+HA_CONTROL_CMD = "ha_control"
+
 
 class CommandHandler:
     """命令处理器
@@ -63,8 +66,11 @@ class CommandHandler:
                 await device.check_replay()
                 return
 
-            # 执行命令前先停止小爱，避免播放"不支持"提示
-            await device.group_force_stop_xiaoai()
+            # 执行命令前先停止小爱，避免播放"不支持"提示。
+            # HA 指令例外：它是去控制家里的设备，只插播一句反馈，
+            # 停播/恢复交给 do_tts（播完会走 check_replay 续播）。
+            if opvalue != HA_CONTROL_CMD:
+                await device.group_force_stop_xiaoai()
 
             # 执行命令
             func = getattr(self.xiaomusic, opvalue)
@@ -108,6 +114,14 @@ class CommandHandler:
                 code = opvalue.split("#", 1)[1]
                 return "exec", code
             return opvalue, ""
+
+        # Home Assistant 规则优先于"模糊关键词"匹配。
+        # xiaomusic 的模糊匹配形如 (.*)关闭(.*)，会把"关闭客厅空调"当成停止播放，
+        # 所以带"关闭/播放"字样的 HA 指令必须在这里先被拦下；
+        # 而上面那段完全匹配（只喊"关闭"两个字）仍然优先，音乐口令不会被抢走。
+        if self._match_ha_cmd(query):
+            self.log.info(f"匹配到 Home Assistant 指令. query:{query}")
+            return HA_CONTROL_CMD, query
 
         # 按优先级顺序进行模糊匹配
         for opkey in self.config.key_match_order:
@@ -155,6 +169,20 @@ class CommandHandler:
 
         self.log.info(f"未匹配到指令 {query} {ctrl_panel}")
         return None, None
+
+    def _match_ha_cmd(self, query):
+        """这句话是否命中 Home Assistant 规则。
+
+        HA 未启用 / 未配置 / 规则文件异常时恒为 False，绝不影响音乐指令。
+        """
+        bridge = getattr(self.xiaomusic, "ha_bridge", None)
+        if bridge is None:
+            return False
+        try:
+            return bridge.can_handle(query)
+        except Exception as e:
+            self.log.warning(f"HA 规则匹配异常: {e}")
+            return False
 
     def check_full_match_cmd(self, device, query, ctrl_panel):
         """检查是否完全匹配命令

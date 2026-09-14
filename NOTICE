@@ -25,6 +25,28 @@ AirPlay 部分又间接派生自 **airplay2-receiver**，
 `xiaomusic/cast/manager.py`）与 `xiaomusic/stream_guard.py` 同样以
 GPL-3.0-or-later 分发。
 
+## 参考来源（MIT，不改变整体许可）
+
+`xiaomusic/ha/` 目录下的 Home Assistant 接入功能参考并部分移植自
+**xiaoai-ha-bridge**：
+
+    xiaoai-ha-bridge — https://github.com/chenshuhe/xiaoai-ha-bridge
+    Licensed under the MIT License
+
+对应关系：
+
+- `xiaomusic/ha/rules.py`  —— 口语正则规则解析（`{num}` 数字提取、`{0}` 参数回填）
+- `xiaomusic/ha/client.py` —— HA REST 客户端（服务调用 / 实体与服务列表 / 定时自动化）
+- `xiaomusic/ha/bridge.py` —— 规则装载与热更新、指令执行、TTS 反馈、延迟与定时
+
+原项目中的小爱登录、对话轮询、TTS 播报在 xiaomusic 里已有对应实现，未一并移植；
+本次只保留"口语指令 → HA 服务调用"一段，并按 xiaomusic 既有链路重新接线，
+新增的接线代码（`xiaomusic/api/routers/ha.py`、`xiaomusic/static/ha.html`
+及 `config.py` / `command_handler.py` / `xiaomusic.py` 中的改动）为本项目原创。
+
+MIT 与 GPL-3.0 兼容：该部分可按 GPL-3.0-or-later 随组合作品一并分发，
+署名与出处在此与前文各组件并列保留。
+
 ## 原有代码
 
 本项目其余部分（`xiaomusic/` 下除 `cast/` 外的代码）来自 **XiaoMusic**：
