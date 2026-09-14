@@ -158,7 +158,7 @@ class Config:
     enable_config_example: bool = False
 
     keywords_playlocal: str = os.getenv(
-        "XIAOMUSIC_KEYWORDS_PLAYLOCAL", "播放本地歌曲,本地播放歌曲"
+        "XIAOMUSIC_KEYWORDS_PLAYLOCAL", "播放本地歌曲,本地播放歌曲,播放本地音乐"
     )
     keywords_play: str = os.getenv("XIAOMUSIC_KEYWORDS_PLAY", "播放歌曲,放歌曲")
     keywords_stop: str = os.getenv(

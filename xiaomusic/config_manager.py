@@ -17,6 +17,15 @@ class ConfigManager:
     - 配置变更通知
     """
 
+    # 一次性迁移：仅当存量配置的值"恰好等于旧默认值"时才升级为新默认值，
+    # 用户自定义过的值不受影响。
+    _KEYWORD_MIGRATIONS = {
+        "keywords_playlocal": (
+            "播放本地歌曲,本地播放歌曲",
+            "播放本地歌曲,本地播放歌曲,播放本地音乐",
+        ),
+    }
+
     def __init__(self, config, log):
         """初始化配置管理器
 
@@ -89,6 +98,11 @@ class ConfigManager:
         Args:
             data: 配置数据字典
         """
+        # 存量配置的口令关键词一次性迁移（仅限恰好等于旧默认值的场景）
+        for key, (legacy, upgraded) in self._KEYWORD_MIGRATIONS.items():
+            if data.get(key) == legacy:
+                data[key] = upgraded
+                self.log.info(f"配置迁移: {key} 已升级为 {upgraded!r}")
         # 自动赋值相同字段的配置
         self.config.update_config(data)
 

@@ -688,6 +688,21 @@ class XiaoMusicDevice:
         )
         return is_playing
 
+    async def get_play_status(self, device_id=None) -> int:
+        """获取原始播放状态。
+
+        Returns:
+            1=播放中, 2=暂停, 0=已停止, 其他=未知
+        """
+        playing_info = await self.auth_manager.mina_service.player_get_status(
+            device_id or self.device_id
+        )
+        return int(
+            json.loads(playing_info.get("data", {}).get("info", "{}")).get(
+                "status", -1
+            )
+        )
+
     async def stop_if_xiaoai_is_playing(self, device_id):
         """如果小爱正在播放则停止"""
         is_playing = await self.get_if_xiaoai_is_playing()
@@ -990,6 +1005,24 @@ class XiaoMusicDevice:
                 self.log.info(
                     f"play_one_url play_by_url device_id:{device_id} ret:{ret} url:{url}"
                 )
+
+            # 部分固件：pause 之后紧跟的 play_music(REPLACE_ALL) 只更新了
+            # 播放上下文（audio_id/时长），并不解除暂停 —— 表现为 status 恒为 2、
+            # position 停在 0，返回 code=0 但始终不出声。等一拍确认，
+            # 仍处于暂停就下发 player_play 拉起（正常播放中的设备不会触发）。
+            if ret is not None and play_api != PLAY_API_URL:
+                await asyncio.sleep(1.5)
+                try:
+                    status = await self.get_play_status(device_id)
+                    if status == 2:
+                        self.log.info(
+                            f"推流后音箱仍处于暂停，恢复播放 device_id:{device_id}"
+                        )
+                        await self.auth_manager.mina_service.player_play(device_id)
+                except Exception as e:
+                    self.log.warning(
+                        f"推流后状态检查失败 device_id:{device_id} {e}"
+                    )
         except Exception as e:
             self.log.exception(f"Execption {e}")
         return ret
@@ -1166,16 +1199,23 @@ class XiaoMusicDevice:
                 if not self.is_playing:
                     return
                 try:
-                    playing = await self.get_if_xiaoai_is_playing()
+                    status = await self.get_play_status()
                 except Exception as e:
                     self.log.warning(f"播完检测轮询失败 did:{self.did} {e}")
                     continue
-                if playing:
+                if status == 1:
                     stopped_count = 0
+                    continue
+                if status == 2:
+                    # 暂停 ≠ 播完：用户主动暂停不应断流，恢复播放后还能继续。
+                    # 只有 status=0（真正停止）才累计。
+                    stopped_count = 0
+                    self.log.debug(f"播完检测: 音箱处于暂停 did:{self.did}，不断流")
                     continue
                 stopped_count += 1
                 self.log.debug(
-                    f"播完检测: 音箱未在播放 did:{self.did} ({stopped_count}/{threshold})"
+                    f"播完检测: 音箱未在播放(status={status}) did:{self.did} "
+                    f"({stopped_count}/{threshold})"
                 )
                 if stopped_count >= threshold:
                     self.log.info(
