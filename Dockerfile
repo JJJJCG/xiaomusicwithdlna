@@ -89,7 +89,6 @@ COPY --from=builder /app/plugins/ ./plugins/
 COPY --from=builder /app/holiday/ ./holiday/
 COPY --from=builder /app/xiaomusic.py .
 COPY --from=builder /app/xiaomusic/__init__.py /base_version.py
-COPY --from=builder /app/package.json .
 
 # 创建FFmpeg软链接目录（兼容不同系统的ffmpeg路径）
 RUN mkdir -p /app/ffmpeg/bin \
