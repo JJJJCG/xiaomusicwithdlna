@@ -52,7 +52,6 @@ const EP = {
   volume: "/api/device/volume",
   cmd: "/api/device/cmd",
   stop: "/api/device/stop",
-  playUrl: "/api/device/pushUrl",
   playing: "/api/music/playing",
   musicList: "/api/music/list",
   musicSearch: "/api/music/search",
@@ -65,10 +64,10 @@ const EP = {
   playlistRename: "/api/playlist/rename",
   playlistAddMusic: "/api/playlist/music/add",
   playlistDelMusic: "/api/playlist/music/delete",
-  onlineSearch: "/api/search/online",
   setting: "/api/system/setting",
   settingSave: "/api/system/modifiysetting",
   version: "/api/system/version",
+  qrcode: "/api/get_qrcode",
 };
 
 /* ------------------------------------------------------------------ *
@@ -111,7 +110,6 @@ const state = {
   musicList: {},
   libList: "",
   playlists: [],
-  onlineResults: [],
   settings: null,
   dirty: new Map(),
   timers: { poll: null },
@@ -134,13 +132,14 @@ function normalizeDevices(raw) {
     .filter((d) => d.did);
 }
 
-async function loadDevices() {
+/** 只负责拉取并渲染设备下拉；事件绑定放在 setupDeviceSelect（只绑一次）。 */
+async function loadDevices(quiet = false) {
   try {
     const raw = await api.get(EP.deviceList);
     state.devices = normalizeDevices(raw);
   } catch (err) {
     state.devices = [];
-    toast(`设备列表获取失败：${err.message}`);
+    if (!quiet) toast(`设备列表获取失败：${err.message}`);
   }
 
   const cached = localStorage.getItem("xm_did") || "";
@@ -161,6 +160,10 @@ async function loadDevices() {
     }
     sel.value = state.did;
   }
+  return state.devices;
+}
+
+function setupDeviceSelect() {
   $("device-select").addEventListener("change", (e) => {
     state.did = e.target.value;
     localStorage.setItem("xm_did", state.did);
@@ -496,70 +499,131 @@ function setupPlaylists() {
 }
 
 /* ------------------------------------------------------------------ *
- * 在线搜索
+ * 登录（扫码）
  * ------------------------------------------------------------------ */
 
-function extractOnlineItems(payload) {
-  if (!payload) return [];
-  const raw = payload.data ?? payload.list ?? payload.results ?? payload;
-  if (Array.isArray(raw)) return raw;
-  if (raw && Array.isArray(raw.list)) return raw.list;
-  if (raw && Array.isArray(raw.data)) return raw.data;
-  return [];
+// 扫码后由服务端在后台轮询登录结果并写入 conf/auth.json（主登录链路
+// auth.py 正是从这个文件取 passToken），前端只需展示二维码 + 倒计时，
+// 用户确认后重试拉一次设备列表即可判断是否生效。
+const QR_FALLBACK_EXPIRE = 120;
+
+let qrCountdown = null;
+
+function stopQrCountdown() {
+  clearInterval(qrCountdown);
+  qrCountdown = null;
 }
 
-async function searchOnline() {
-  const keyword = $("online-keyword").value.trim();
-  if (!keyword) return;
-  const ul = $("online-items");
-  ul.replaceChildren(el("li", "meta", "搜索中…"));
+function setQrStatus(text) {
+  $("qr-status").textContent = text;
+}
+
+function showQrImage(url) {
+  const img = $("qr-image");
+  const holder = $("qr-placeholder");
+  if (url) {
+    img.src = url;
+    img.hidden = false;
+    holder.hidden = true;
+  } else {
+    img.removeAttribute("src");
+    img.hidden = true;
+    holder.hidden = false;
+  }
+}
+
+function startQrCountdown(seconds) {
+  stopQrCountdown();
+  let remain = Number(seconds) > 0 ? Number(seconds) : QR_FALLBACK_EXPIRE;
+  const tick = () => {
+    if (remain <= 0) {
+      stopQrCountdown();
+      showQrImage("");
+      $("qr-placeholder").textContent = "二维码已过期，请重新获取";
+      setQrStatus("二维码已过期");
+      return;
+    }
+    setQrStatus(`请用米家 App 扫码，二维码 ${remain} 秒后过期`);
+    remain -= 1;
+  };
+  tick();
+  qrCountdown = setInterval(tick, 1000);
+}
+
+async function fetchQrcode() {
+  stopQrCountdown();
+  showQrImage("");
+  $("qr-placeholder").textContent = "正在生成二维码…";
+  setQrStatus("");
   try {
-    const payload = await api.get(EP.onlineSearch, { keyword });
-    state.onlineResults = extractOnlineItems(payload);
+    const data = await api.get(EP.qrcode);
+    if (!data || data.success === false) {
+      $("qr-placeholder").textContent = "二维码生成失败";
+      setQrStatus((data && data.message) || "请稍后重试");
+      return;
+    }
+    if (data.already_logged_in) {
+      $("qr-placeholder").textContent = "已登录，无需扫码";
+      setQrStatus(data.message || "已登录");
+      await loadDevices(true);
+      renderLogin();
+      return;
+    }
+    showQrImage(data.qrcode_url);
+    startQrCountdown(data.expire_seconds);
   } catch (err) {
-    state.onlineResults = [];
-    toast(`搜索失败：${err.message}`);
+    $("qr-placeholder").textContent = "二维码生成失败";
+    setQrStatus(err.message);
   }
-  renderOnline();
 }
 
-function renderOnline() {
-  const ul = $("online-items");
-  ul.replaceChildren();
-  if (!state.onlineResults.length) {
-    $("online-hint").textContent = "没有结果，换个关键词，或检查插件/开放平台设置。";
-    return;
+/** 用户点「我已完成扫码」：重试拉设备列表，拿到设备即视为登录生效。 */
+async function recheckLogin(attempts = 5) {
+  for (let i = 0; i < attempts; i += 1) {
+    setQrStatus(`正在确认登录…（${i + 1}/${attempts}）`);
+    await loadDevices(true);
+    if (state.devices.length) {
+      stopQrCountdown();
+      showQrImage("");
+      $("qr-placeholder").textContent = "登录成功";
+      setQrStatus("");
+      renderLogin();
+      toast(`登录成功，已发现 ${state.devices.length} 台设备`);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   }
-  $("online-hint").textContent = `共 ${state.onlineResults.length} 条，点击标题推送到音箱播放。`;
+  setQrStatus("仍未检测到设备：请确认手机上已点确认，或稍后再点一次。");
+}
 
+function renderLogin() {
+  const count = state.devices.length;
+  $("login-state").textContent = count
+    ? `已登录，发现 ${count} 台设备`
+    : "未检测到设备：请扫码登录，或检查账号与网络";
+  const ul = $("login-devices");
+  ul.replaceChildren();
   const frag = document.createDocumentFragment();
-  for (const item of state.onlineResults.slice(0, libShown)) {
-    const title = item.title || item.name || item.songname || "未知曲目";
-    const artist = item.artist || item.singer || "";
+  for (const d of state.devices) {
     const li = el("li");
-    const span = el("span", "title", artist ? `${title} — ${artist}` : title);
-    span.addEventListener("click", () => pushOnline(item));
-    li.append(span, el("span", "meta", item.type || item.plugin || ""));
+    li.append(el("span", "title", d.name));
+    li.append(el("span", "meta", d.hardware || ""));
     frag.append(li);
   }
   ul.append(frag);
 }
 
-async function pushOnline(item) {
-  try {
-    await api.post(EP.playUrl, { did: state.did, ...item });
-    toast("已推送到音箱");
-    setTimeout(() => poll(true), 900);
-  } catch (err) {
-    toast(`推送失败：${err.message}`);
+async function loadLogin() {
+  renderLogin();
+  if (!state.devices.length) {
+    await loadDevices(true);
+    renderLogin();
   }
 }
 
-function setupOnline() {
-  $("online-search").addEventListener("click", searchOnline);
-  $("online-keyword").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") searchOnline();
-  });
+function setupLogin() {
+  $("qr-fetch").addEventListener("click", fetchQrcode);
+  $("qr-recheck").addEventListener("click", () => recheckLogin());
 }
 
 /* ------------------------------------------------------------------ *
@@ -729,11 +793,14 @@ function setupSettings() {
 const VIEW_INIT = {
   library: () => loadLibrary(),
   playlist: () => loadPlaylists(true),
+  login: () => loadLogin(),
   setting: () => (state.settings ? renderSettings() : loadSettings()),
 };
 
 function switchView(view) {
   state.view = view;
+  // 离开登录页就停掉二维码倒计时，别让它在后台跑
+  if (view !== "login") stopQrCountdown();
   for (const tab of document.querySelectorAll(".tab")) {
     tab.classList.toggle("is-active", tab.dataset.view === view);
   }
@@ -770,9 +837,10 @@ async function main() {
   setupTheme();
   setupTransport();
   setupVolume();
+  setupDeviceSelect();
   setupLibrary();
   setupPlaylists();
-  setupOnline();
+  setupLogin();
   setupSettings();
 
   for (const tab of document.querySelectorAll(".tab")) {
@@ -787,11 +855,16 @@ async function main() {
     }
   });
 
-  await loadDevices();
+  await loadDevices(true);
   await Promise.all([refreshVolume(), poll(true)]);
   await showVersion();
 
+  // 一台设备都没发现，多半是没登录 —— 直接把人带到登录页
   const initial = (location.hash || "").replace("#", "");
+  if (!state.devices.length && !initial) {
+    switchView("login");
+    return;
+  }
   switchView(initial || "now");
 }
 

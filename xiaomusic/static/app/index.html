@@ -22,7 +22,7 @@
       <button class="tab is-active" data-view="now" role="tab">播放</button>
       <button class="tab" data-view="library" role="tab">音乐库</button>
       <button class="tab" data-view="playlist" role="tab">歌单</button>
-      <button class="tab" data-view="online" role="tab">在线</button>
+      <button class="tab" data-view="login" role="tab">登录</button>
       <button class="tab" data-view="setting" role="tab">设置</button>
     </nav>
 
@@ -104,14 +104,37 @@
       <button class="btn more" id="pl-more" hidden>加载更多</button>
     </section>
 
-    <!-- 在线 -->
-    <section class="view" id="view-online">
-      <div class="toolbar">
-        <input type="search" id="online-keyword" placeholder="搜索在线音乐…" />
-        <button class="btn" id="online-search">搜索</button>
+    <!-- 登录 -->
+    <section class="view" id="view-login">
+      <div class="panel">
+        <h2 class="panel-title">连接小米账号</h2>
+        <p class="hint" id="login-state">正在检查登录状态…</p>
+
+        <div class="qr-wrap">
+          <img id="qr-image" alt="扫码登录二维码" hidden />
+          <div class="qr-placeholder" id="qr-placeholder">点下方按钮获取二维码</div>
+        </div>
+        <p class="hint qr-status" id="qr-status"></p>
+
+        <div class="qr-actions">
+          <button class="btn primary" id="qr-fetch">获取二维码</button>
+          <button class="btn" id="qr-recheck">我已完成扫码</button>
+        </div>
+
+        <ol class="login-steps">
+          <li>手机打开「米家」App → 我的 → 右上角扫一扫</li>
+          <li>扫描上方二维码，并在手机上确认登录</li>
+          <li>回到本页点「我已完成扫码」，设备会自动出现在右上角</li>
+        </ol>
+        <p class="hint">
+          登录凭据保存在 <code>conf/auth.json</code>，有效期约 30 天，过期后重新扫码即可。
+        </p>
       </div>
-      <ul class="list" id="online-items"></ul>
-      <p class="hint" id="online-hint">搜索后点击结果即可推送到音箱播放。</p>
+
+      <div class="panel">
+        <h3 class="panel-title">已连接设备</h3>
+        <ul class="list" id="login-devices"></ul>
+      </div>
     </section>
 
     <!-- 设置 -->

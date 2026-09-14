@@ -333,6 +333,55 @@ main { flex: 1; padding: 18px; max-width: 900px; width: 100%; margin: 0 auto; }
 }
 .list .mini:hover { color: var(--fg); background: var(--bg-sunken); }
 
+/* ---------- 面板（登录等独立区块） ---------- */
+
+.panel {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  margin-bottom: 16px;
+}
+.panel-title { margin: 0 0 10px; font-size: 16px; font-weight: 650; }
+
+.qr-wrap {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  margin: 14px 0;
+}
+#qr-image {
+  width: 220px;
+  height: 220px;
+  image-rendering: pixelated; /* 二维码放大后边缘不糊，扫码更稳 */
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px;
+}
+.qr-placeholder {
+  width: 220px;
+  height: 220px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--fg-dim);
+  font-size: 13px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 16px;
+}
+.qr-status { text-align: center; min-height: 1.5em; }
+.qr-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+.login-steps {
+  margin: 18px 0 0;
+  padding-left: 20px;
+  color: var(--fg-dim);
+  font-size: 13px;
+  line-height: 1.9;
+}
+
 /* ---------- 设置表单 ---------- */
 
 .setting-form { display: grid; gap: 18px; }
