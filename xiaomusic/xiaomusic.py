@@ -68,9 +68,6 @@ class XiaoMusic:
         # 投送服务 (DLNA 渲染器 / AirPlay 接收器)，在登录完成后启动
         self.cast_manager = None
 
-        # Home Assistant 接入 (语音控制 HA 设备)，规则文件按需装载
-        self.ha_bridge = HABridge(self)
-
         # 初始化在线音乐服务（延迟初始化，在 js_plugin_manager 之后）
         self.online_music_service = None
 
@@ -79,6 +76,10 @@ class XiaoMusic:
 
         # 初始化日志
         self.setup_logger()
+
+        # Home Assistant 接入 (语音控制 HA 设备)，规则文件按需装载。
+        # 必须在 setup_logger() 之后构造：HABridge 会取 xiaomusic.log。
+        self.ha_bridge = HABridge(self)
 
         # 计划任务
         self.crontab = Crontab(self.log)

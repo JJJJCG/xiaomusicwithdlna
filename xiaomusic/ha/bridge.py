@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 
@@ -23,6 +24,9 @@ from xiaomusic.ha.rules import (
     parse_query,
     split_action,
 )
+
+# 与 xiaomusic.ha.client 同一个 logger 名前缀，便于统一过滤 [HA] 日志
+log = logging.getLogger("xiaomusic.ha")
 
 # 规则文件变更的探测间隔（秒）：语音指令很频繁，不能每次都 stat
 _RELOAD_CHECK_INTERVAL = 5.0
@@ -76,7 +80,9 @@ class HABridge:
     def __init__(self, xiaomusic):
         self.xiaomusic = xiaomusic
         self.config = xiaomusic.config
-        self.log = xiaomusic.log
+        # 取主程序的 logger；若构造时机早于 setup_logger()（日志句柄还没建），
+        # 退回本模块的 logger —— 不要因为一个日志句柄把整个启动流程打断
+        self.log = getattr(xiaomusic, "log", None) or log
 
         self._compiled: list[dict] = []
         self._raw_rules: list[dict] = []
