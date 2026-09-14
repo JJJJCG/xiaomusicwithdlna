@@ -152,7 +152,6 @@ class XiaoMusicDevice:
         offset = time.time() - self._start_time - self._paused_time
         return offset, duration
 
-
     async def play_music(self, name):
         """播放音乐（外部接口）"""
         return await self._playmusic(name)
