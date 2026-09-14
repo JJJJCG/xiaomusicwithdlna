@@ -698,9 +698,7 @@ class XiaoMusicDevice:
             device_id or self.device_id
         )
         return int(
-            json.loads(playing_info.get("data", {}).get("info", "{}")).get(
-                "status", -1
-            )
+            json.loads(playing_info.get("data", {}).get("info", "{}")).get("status", -1)
         )
 
     async def stop_if_xiaoai_is_playing(self, device_id):
@@ -1020,9 +1018,7 @@ class XiaoMusicDevice:
                         )
                         await self.auth_manager.mina_service.player_play(device_id)
                 except Exception as e:
-                    self.log.warning(
-                        f"推流后状态检查失败 device_id:{device_id} {e}"
-                    )
+                    self.log.warning(f"推流后状态检查失败 device_id:{device_id} {e}")
         except Exception as e:
             self.log.exception(f"Execption {e}")
         return ret
