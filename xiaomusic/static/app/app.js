@@ -698,6 +698,26 @@ function renderSettings() {
 
     const fieldset = el("div", "fieldset");
     fieldset.append(el("h3", null, group));
+
+    // Home Assistant 组：语音正则规则不在配置表单里，给一个直达编辑页的按钮
+    if (group === "Home Assistant") {
+      const link = el(
+        "a",
+        "btn",
+        "编辑语音规则（正则表达式）→"
+      );
+      link.href = "/static/ha.html";
+      link.target = "_blank";
+      link.rel = "noopener";
+      const note = el(
+        "p",
+        "hint",
+        "正则规则（你说的话 → HA 动作 + 回话）保存在 conf/ha_rules.json，" +
+          "在规则编辑页里可视化增删改，保存后 5 秒内自动生效。"
+      );
+      fieldset.append(link, note);
+    }
+
     for (const [key, value] of entries) {
       fieldset.append(buildField(key, value));
       shown += 1;

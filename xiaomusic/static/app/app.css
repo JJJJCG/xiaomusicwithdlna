@@ -151,6 +151,8 @@ input[type="range"] {
 }
 .btn:hover { background: var(--bg-sunken); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+/* 设置组头下的链接型按钮（如"编辑语音规则"） */
+a.btn { display: inline-block; text-decoration: none; margin: 4px 0 10px; }
 .btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
 .btn.more { width: 100%; margin-top: 8px; }
 
